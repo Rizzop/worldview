@@ -720,15 +720,17 @@ pre {
   pointer-events: auto;
 }
 
+/* Glassmorphism styling for controls panel */
 .controls-panel {
-  background-color: rgba(10, 10, 10, 0.9);
-  border: 1px solid var(--border-color);
+  background-color: rgba(10, 10, 20, 0.7);
+  border: 1px solid rgba(0, 255, 255, 0.2);
   border-radius: var(--radius-md);
   padding: var(--spacing-md);
   min-width: 220px;
   max-width: 280px;
-  box-shadow: var(--shadow-panel);
-  backdrop-filter: blur(10px);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
 }
 
 .controls-panel:hover {
@@ -880,20 +882,22 @@ pre {
    Info Panel - Entity Details Overlay
    ============================================ */
 
+/* Glassmorphism styling for info panel */
 .info-panel {
   position: fixed;
   top: 10px;
   right: 10px;
   z-index: 1001;
-  background-color: rgba(10, 10, 10, 0.95);
-  border: 1px solid var(--border-color);
+  background-color: rgba(10, 10, 20, 0.7);
+  border: 1px solid rgba(0, 255, 255, 0.2);
   border-radius: var(--radius-md);
   min-width: 280px;
   max-width: 360px;
   max-height: 80vh;
   overflow-y: auto;
-  box-shadow: var(--shadow-panel);
-  backdrop-filter: blur(10px);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
 }
 
 .info-panel-header {
@@ -1007,4 +1011,94 @@ pre {
   .controls-panel, .info-panel {
     display: none;
   }
+}
+
+/* ============================================
+   Regions Panel - Quick Navigation Presets
+   ============================================ */
+
+.regions-container {
+  position: fixed;
+  top: 10px;
+  left: 250px;
+  z-index: 1000;
+  pointer-events: auto;
+}
+
+/* Glassmorphism styling for regions panel */
+.regions-panel {
+  background-color: rgba(10, 10, 20, 0.7);
+  border: 1px solid rgba(0, 255, 255, 0.2);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-sm) var(--spacing-md);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.regions-section {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.regions-label {
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  white-space: nowrap;
+}
+
+.regions-dropdown {
+  appearance: none;
+  padding: var(--spacing-xs) var(--spacing-md);
+  padding-right: 2rem;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  color: var(--accent-cyan);
+  background-color: rgba(20, 20, 30, 0.8);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2300ffff' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right var(--spacing-sm) center;
+  border: 1px solid rgba(0, 255, 255, 0.3);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.regions-dropdown:focus {
+  outline: none;
+  border-color: var(--accent-cyan);
+  box-shadow: 0 0 10px rgba(0, 255, 255, 0.3);
+}
+
+.regions-dropdown:hover {
+  border-color: var(--accent-cyan);
+}
+
+.regions-dropdown option {
+  background-color: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+/* ============================================
+   HUD Military Counter Styling
+   ============================================ */
+
+.hud-military {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
+.hud-military-value {
+  color: var(--accent-red);
+  font-weight: bold;
+  font-size: var(--font-size-base);
+}
+
+.hud-military-suffix {
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
 }

@@ -58,8 +58,9 @@ class EventEmitter {
 
 /**
  * Available layer types for toggle switches
+ * News layer added for GDELT conflict events
  */
-const LAYER_TYPES = ['satellites', 'flights', 'military', 'seismic', 'traffic', 'cctv'];
+const LAYER_TYPES = ['satellites', 'flights', 'military', 'seismic', 'traffic', 'cctv', 'news'];
 
 /**
  * Available visual modes for dropdown

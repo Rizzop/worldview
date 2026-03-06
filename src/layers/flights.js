@@ -49,6 +49,27 @@ const OPENSKY_FIELDS = {
 const ALTITUDE_SCALE_FACTOR = 50;
 
 /**
+ * Maximum number of flight entities for performance
+ */
+const MAX_FLIGHT_ENTITIES = 2000;
+
+/**
+ * Cinematic flight visualization settings
+ * Flights appear as tiny bright dots like stars moving across the globe
+ */
+const CINEMATIC_SETTINGS = {
+  // Civilian: tiny bright cyan points
+  civilianPixelSize: 3,
+  civilianColor: 'CYAN',
+  // Military: slightly larger red points with callsign labels
+  militaryPixelSize: 5,
+  militaryColor: 'RED',
+  // Trail settings for military aircraft
+  trailEnabled: true,
+  trailFadeDuration: 5 * 60 * 1000, // 5 minutes in ms
+};
+
+/**
  * FlightLayer class
  * Manages flight data fetching and parsing from OpenSky Network.
  */
@@ -302,6 +323,22 @@ export class FlightLayer {
   }
 
   /**
+   * Get count of military aircraft
+   * @returns {number} Number of military flights
+   */
+  getMilitaryCount() {
+    return this.flights.filter(f => isMilitary(f)).length;
+  }
+
+  /**
+   * Get all military flights
+   * @returns {Array<Object>} Array of military flight objects
+   */
+  getMilitaryFlights() {
+    return this.flights.filter(f => isMilitary(f));
+  }
+
+  /**
    * Get detailed flight info by ICAO24 address
    * @param {string} icao24 - ICAO 24-bit address
    * @returns {Object|null} Flight info object
@@ -320,25 +357,25 @@ export class FlightLayer {
   }
 
   /**
-   * Calculate marker size based on altitude
-   * Low altitude = smaller marker, high altitude = larger marker
-   * @param {number|null} altitude - Altitude in meters
-   * @returns {number} Pixel size for marker (8-16)
+   * Calculate marker size for cinematic display
+   * Returns small pixel sizes for elegant star-like appearance
+   * @param {boolean} isMilitary - Whether the flight is military
+   * @returns {number} Pixel size for marker (3-5)
    * @private
    */
-  _getMarkerSizeByAltitude(altitude) {
-    if (altitude == null || altitude <= 0) {
-      return 8; // Ground or unknown altitude - minimum size
-    }
+  _getMarkerSize(isMilitary) {
+    return isMilitary ? CINEMATIC_SETTINGS.militaryPixelSize : CINEMATIC_SETTINGS.civilianPixelSize;
+  }
 
-    // Typical cruising altitude is ~10,000-12,000m
-    // Scale from 8px (ground) to 16px (high altitude)
-    const maxAltitude = 15000; // meters
-    const minSize = 8;
-    const maxSize = 16;
-
-    const normalizedAlt = Math.min(altitude, maxAltitude) / maxAltitude;
-    return Math.round(minSize + normalizedAlt * (maxSize - minSize));
+  /**
+   * Get marker color based on military status
+   * @param {boolean} isMilitary - Whether the flight is military
+   * @returns {Object} Cesium Color object
+   * @private
+   */
+  _getMarkerColor(isMilitary) {
+    if (!Cesium) return null;
+    return isMilitary ? Cesium.Color.RED : Cesium.Color.CYAN;
   }
 
   /**
@@ -415,7 +452,10 @@ export class FlightLayer {
     const self = this;
     const currentFlightIds = new Set();
 
-    for (const flight of this.flights) {
+    // Limit flights for performance
+    const flightsToRender = this.flights.slice(0, MAX_FLIGHT_ENTITIES);
+
+    for (const flight of flightsToRender) {
       // Skip flights without valid positions
       if (flight.lat == null || flight.lon == null) {
         continue;
@@ -427,16 +467,11 @@ export class FlightLayer {
       // Determine if this is a military aircraft
       const military = isMilitary(flight);
 
-      // Color: military = red, civilian = blue
-      const markerColor = military ? Cesium.Color.RED : Cesium.Color.BLUE;
+      // Cinematic styling: tiny bright dots
+      const markerColor = this._getMarkerColor(military);
+      const pixelSize = this._getMarkerSize(military);
 
-      // Marker size based on altitude
-      const pixelSize = this._getMarkerSizeByAltitude(flight.altitude);
-
-      // Altitude for display (convert to feet for label)
-      const altFeet = flight.altitude != null ? Math.round(flight.altitude * 3.281) : 0;
-
-      // Callsign for label (fallback to ICAO24 if no callsign)
+      // Callsign for label (only shown for military)
       const labelText = flight.callsign || flight.icao24 || 'Unknown';
 
       // Calculate scaled altitude for visibility
@@ -459,11 +494,15 @@ export class FlightLayer {
           existingEntity.point.pixelSize.setValue(pixelSize);
           existingEntity.point.color.setValue(markerColor);
         }
-        if (existingEntity.label) {
+        if (existingEntity.label && military) {
           existingEntity.label.text.setValue(labelText);
+          existingEntity.label.show.setValue(true);
+        } else if (existingEntity.label) {
+          existingEntity.label.show.setValue(false);
         }
       } else {
         // Create new entity for flights not yet on globe
+        // Cinematic look: tiny bright points, labels only for military
         globe.addEntity(entityId, {
           name: labelText,
           position: Cesium.Cartesian3.fromDegrees(
@@ -474,19 +513,24 @@ export class FlightLayer {
           point: {
             pixelSize: pixelSize,
             color: markerColor,
-            outlineColor: Cesium.Color.WHITE,
-            outlineWidth: 1,
+            outlineColor: Cesium.Color.TRANSPARENT,
+            outlineWidth: 0,
           },
-          label: {
+          // Labels only for military aircraft
+          label: military ? {
             text: labelText,
-            font: '11px sans-serif',
-            fillColor: Cesium.Color.WHITE,
+            font: '10px monospace',
+            fillColor: Cesium.Color.RED.withAlpha(0.9),
             outlineColor: Cesium.Color.BLACK,
-            outlineWidth: 2,
+            outlineWidth: 1,
             style: Cesium.LabelStyle.FILL_AND_OUTLINE,
             verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
-            pixelOffset: new Cesium.Cartesian2(0, -10),
-            distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0, 5000000),
+            pixelOffset: new Cesium.Cartesian2(0, -8),
+            distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0, 3000000),
+            show: true,
+          } : {
+            text: '',
+            show: false,
           },
           properties: {
             icao24: flight.icao24,

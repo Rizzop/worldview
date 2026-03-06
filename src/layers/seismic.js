@@ -18,6 +18,23 @@ const Cesium = (typeof window !== 'undefined' && window.Cesium) ||
 const DEFAULT_USGS_URL = 'https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson';
 
 /**
+ * Maximum number of seismic markers for performance
+ */
+const MAX_SEISMIC_MARKERS = 200;
+
+/**
+ * Cinematic seismic visualization settings
+ * Subtle pulsing rings at earthquake locations
+ */
+const CINEMATIC_SETTINGS = {
+  // Ring appearance: thin outline, pulsing animation
+  ringOpacity: 0.4,
+  ringOutlineOpacity: 0.7,
+  pulseAmplitude: 0.3,
+  pulsePeriod: 2.5,
+};
+
+/**
  * SeismicLayer class
  * Manages earthquake data fetching and parsing from USGS GeoJSON feed.
  */
@@ -243,14 +260,14 @@ export class SeismicLayer {
   }
 
   /**
-   * Create a pulsing radius callback for animated circle effect
+   * Create a pulsing radius callback for animated ring effect
    * @param {number} baseRadius - Base radius in meters
    * @param {number} pulseAmplitude - Pulse amplitude as fraction (0.0 - 1.0)
    * @param {number} pulsePeriod - Pulse period in seconds
    * @returns {Object} Cesium CallbackProperty for pulsing radius
    * @private
    */
-  _createPulsingRadius(baseRadius, pulseAmplitude = 0.2, pulsePeriod = 2.0) {
+  _createPulsingRadius(baseRadius, pulseAmplitude = CINEMATIC_SETTINGS.pulseAmplitude, pulsePeriod = CINEMATIC_SETTINGS.pulsePeriod) {
     if (!Cesium) return baseRadius;
 
     const startTime = Date.now();
@@ -264,8 +281,29 @@ export class SeismicLayer {
   }
 
   /**
-   * Render earthquakes on the globe with pulsing circle markers
-   * Circle size scales with magnitude, color indicates depth
+   * Create a pulsing opacity callback for animated ring effect
+   * @param {number} baseOpacity - Base opacity (0.0 - 1.0)
+   * @param {number} pulsePeriod - Pulse period in seconds
+   * @returns {Object} Cesium CallbackProperty for pulsing opacity
+   * @private
+   */
+  _createPulsingOpacity(baseOpacity, pulsePeriod = CINEMATIC_SETTINGS.pulsePeriod) {
+    if (!Cesium) return baseOpacity;
+
+    const startTime = Date.now();
+
+    return new Cesium.CallbackProperty(() => {
+      const elapsed = (Date.now() - startTime) / 1000;
+      const phase = (elapsed % pulsePeriod) / pulsePeriod;
+      // Opacity pulses between 0.2 and baseOpacity
+      const opacityFactor = 0.5 + 0.5 * Math.sin(phase * 2 * Math.PI);
+      return baseOpacity * opacityFactor;
+    }, false);
+  }
+
+  /**
+   * Render earthquakes on the globe with pulsing ring markers
+   * Cinematic look: subtle pulsing rings, not solid circles
    *
    * @param {Object} globe - Globe instance with addEntity method
    * @returns {Array<string>} Array of created entity IDs
@@ -284,12 +322,13 @@ export class SeismicLayer {
     const entityIds = [];
     const self = this;
 
-    for (const eq of this.earthquakes) {
-      // Skip earthquakes without valid positions
-      if (eq.lat == null || eq.lon == null) {
-        continue;
-      }
+    // Limit earthquakes for performance, prioritize higher magnitude
+    const earthquakesToRender = this.earthquakes
+      .filter(eq => eq.lat != null && eq.lon != null)
+      .sort((a, b) => (b.magnitude || 0) - (a.magnitude || 0))
+      .slice(0, MAX_SEISMIC_MARKERS);
 
+    for (const eq of earthquakesToRender) {
       const entityId = `earthquake-${eq.id}`;
 
       // Calculate radius based on magnitude
@@ -298,41 +337,45 @@ export class SeismicLayer {
       // Get color based on depth
       const color = this._getColorByDepth(eq.depth);
 
-      // Create pulsing radius effect
+      // Create pulsing radius effect for ring
       const pulsingRadius = this._createPulsingRadius(baseRadius);
 
       // Magnitude display string
       const magStr = eq.magnitude != null ? eq.magnitude.toFixed(1) : '?';
 
-      // Create earthquake circle entity with pulsing animation
+      // Cinematic earthquake ring: pulsing outline, very subtle fill
       globe.addEntity(entityId, {
         name: eq.place || `M${magStr} Earthquake`,
         position: Cesium.Cartesian3.fromDegrees(eq.lon, eq.lat, 0),
         ellipse: {
           semiMajorAxis: pulsingRadius,
           semiMinorAxis: pulsingRadius,
-          material: color.withAlpha(0.5),
+          // Very subtle fill - mostly transparent
+          material: color.withAlpha(CINEMATIC_SETTINGS.ringOpacity * 0.3),
           outline: true,
-          outlineColor: color,
-          outlineWidth: 2,
+          outlineColor: color.withAlpha(CINEMATIC_SETTINGS.ringOutlineOpacity),
+          outlineWidth: 1.5,
           height: 0,
           heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
         },
+        // Minimal label
         label: {
           text: `M${magStr}`,
-          font: '12px sans-serif',
-          fillColor: Cesium.Color.WHITE,
+          font: '10px monospace',
+          fillColor: color.withAlpha(0.9),
           outlineColor: Cesium.Color.BLACK,
-          outlineWidth: 2,
+          outlineWidth: 1,
           style: Cesium.LabelStyle.FILL_AND_OUTLINE,
           verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
           pixelOffset: new Cesium.Cartesian2(0, -5),
-          distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0, 10000000),
+          distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0, 5000000),
         },
         properties: {
           earthquakeId: eq.id,
           magnitude: eq.magnitude,
           depth: eq.depth,
+          place: eq.place,
+          timestamp: eq.timestamp,
           type: 'earthquake',
         },
       });

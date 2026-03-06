@@ -105,11 +105,27 @@
             font-size: 11px;
             color: #888;
         }
+        /* Military counter in HUD */
+        .hud-military {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .hud-military-value {
+            color: #ff3333;
+            font-weight: bold;
+            font-size: 14px;
+        }
+        .hud-military-suffix {
+            color: #888;
+            font-size: 11px;
+        }
     </style>
 </head>
 <body>
     <div id="cesiumContainer"></div>
     <div id="controlsContainer" class="controlsContainer"></div>
+    <div id="regionsContainer" class="regions-container"></div>
     <div id="searchContainer">
         <input type="text" id="searchInput" placeholder="Search location (e.g., New York, Tokyo)..." />
     </div>

@@ -19,6 +19,25 @@ const Cesium = (typeof window !== 'undefined' && window.Cesium) ||
 const DEFAULT_TLE_URL = 'https://celestrak.org/NORAD/elements/gp.php?GROUP=active&FORMAT=tle';
 
 /**
+ * Maximum number of satellite entities for performance
+ */
+const MAX_SATELLITE_ENTITIES = 500;
+
+/**
+ * Cinematic satellite visualization settings
+ * Thin subtle orbit lines with tiny bright dots at current position
+ */
+const CINEMATIC_SETTINGS = {
+  // Orbit line: very thin, low opacity cyan/white
+  orbitLineWidth: 1,
+  orbitLineOpacity: 0.2,
+  orbitLineColor: 'CYAN',
+  // Satellite point: tiny bright dot
+  satellitePixelSize: 4,
+  satelliteColor: 'WHITE',
+};
+
+/**
  * SatelliteLayer class
  * Manages satellite data fetching, parsing, and position computation.
  */
@@ -225,6 +244,7 @@ export class SatelliteLayer {
 
   /**
    * Render satellites on the globe with markers, labels, and orbit paths
+   * Uses cinematic styling: thin subtle orbit lines, tiny bright dots
    * @param {Object} globe - Globe instance with addEntity method
    * @returns {Array<string>} Array of created entity IDs
    */
@@ -242,17 +262,17 @@ export class SatelliteLayer {
     const entityIds = [];
     const self = this;
 
-    for (const sat of this.satellites) {
-      // Skip satellites without valid positions
-      if (!sat.position || sat.position.lat == null || sat.position.lon == null) {
-        continue;
-      }
+    // Limit satellites for performance
+    const satellitesToRender = this.satellites
+      .filter(sat => sat.position && sat.position.lat != null && sat.position.lon != null)
+      .slice(0, MAX_SATELLITE_ENTITIES);
 
+    for (const sat of satellitesToRender) {
       const satEntityId = `satellite-${sat.noradId}`;
       const orbitEntityId = `orbit-${sat.noradId}`;
 
-      // Create satellite marker entity with label
-      const markerEntity = globe.addEntity(satEntityId, {
+      // Cinematic satellite marker: tiny bright white dot
+      globe.addEntity(satEntityId, {
         name: sat.name,
         position: Cesium.Cartesian3.fromDegrees(
           sat.position.lon,
@@ -260,24 +280,26 @@ export class SatelliteLayer {
           (sat.position.alt || 0) * 1000 // Convert km to meters
         ),
         point: {
-          pixelSize: 8,
-          color: Cesium.Color.YELLOW,
-          outlineColor: Cesium.Color.WHITE,
-          outlineWidth: 1,
+          pixelSize: CINEMATIC_SETTINGS.satellitePixelSize,
+          color: Cesium.Color.WHITE,
+          outlineColor: Cesium.Color.TRANSPARENT,
+          outlineWidth: 0,
         },
+        // Minimal labels only at close zoom
         label: {
-          text: `${sat.noradId} ${sat.name}`,
-          font: '12px sans-serif',
-          fillColor: Cesium.Color.WHITE,
+          text: sat.name,
+          font: '9px monospace',
+          fillColor: Cesium.Color.CYAN.withAlpha(0.7),
           outlineColor: Cesium.Color.BLACK,
-          outlineWidth: 2,
+          outlineWidth: 1,
           style: Cesium.LabelStyle.FILL_AND_OUTLINE,
           verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
-          pixelOffset: new Cesium.Cartesian2(0, -12),
-          distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0, 20000000),
+          pixelOffset: new Cesium.Cartesian2(0, -6),
+          distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0, 5000000),
         },
         properties: {
           noradId: sat.noradId,
+          name: sat.name,
           type: 'satellite',
         },
       });
@@ -297,16 +319,13 @@ export class SatelliteLayer {
           )
         );
 
-        // Create orbit path polyline entity
+        // Cinematic orbit path: thin, low opacity cyan line
         globe.addEntity(orbitEntityId, {
           name: `${sat.name} Orbit`,
           polyline: {
             positions: cartesianPositions,
-            width: 1,
-            material: new Cesium.PolylineGlowMaterialProperty({
-              glowPower: 0.2,
-              color: Cesium.Color.CYAN.withAlpha(0.7),
-            }),
+            width: CINEMATIC_SETTINGS.orbitLineWidth,
+            material: Cesium.Color.CYAN.withAlpha(CINEMATIC_SETTINGS.orbitLineOpacity),
           },
           properties: {
             noradId: sat.noradId,

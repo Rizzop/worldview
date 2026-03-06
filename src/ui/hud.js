@@ -29,7 +29,7 @@ function formatDuration(ms) {
 
 /**
  * HUD class - Heads-up display overlay for globe visualization
- * Displays real-time stats: FPS, layer freshness, active layer count, connection status
+ * Displays real-time stats: FPS, layer freshness, active layer count, connection status, military count
  */
 export class HUD {
   /**
@@ -60,11 +60,15 @@ export class HUD {
     // Connection status
     this._connectionStatus = 'connected';
 
+    // Military aircraft count
+    this._militaryCount = 0;
+
     // DOM element references
     this._fpsElement = null;
     this._layerCountElement = null;
     this._connectionElement = null;
     this._freshnessContainer = null;
+    this._militaryCountElement = null;
 
     // Render immediately if container provided
     if (options.container && this._domAvailable) {
@@ -134,6 +138,23 @@ export class HUD {
   }
 
   /**
+   * Set military aircraft count
+   * @param {number} count - Number of military aircraft
+   */
+  setMilitaryCount(count) {
+    this._militaryCount = count;
+    this._updateMilitaryDisplay();
+  }
+
+  /**
+   * Get military aircraft count
+   * @returns {number}
+   */
+  getMilitaryCount() {
+    return this._militaryCount;
+  }
+
+  /**
    * Render the HUD to the DOM
    * @param {string|HTMLElement} container - Container element or ID
    * @returns {HTMLElement|null} The created HUD element, or null if DOM unavailable
@@ -172,6 +193,7 @@ export class HUD {
     this._layerCountElement = this.element.querySelector('.hud-layer-count-value');
     this._connectionElement = this.element.querySelector('.hud-connection-value');
     this._freshnessContainer = this.element.querySelector('.hud-freshness-list');
+    this._militaryCountElement = this.element.querySelector('.hud-military-value');
 
     // Start FPS tracking
     this._startFPSTracking();
@@ -196,6 +218,11 @@ export class HUD {
       <div class="hud-section hud-layers">
         <span class="hud-label">Layers:</span>
         <span class="hud-layer-count-value">0</span>
+      </div>
+      <div class="hud-section hud-military">
+        <span class="hud-label">MIL:</span>
+        <span class="hud-military-value">0</span>
+        <span class="hud-military-suffix">active</span>
       </div>
       <div class="hud-section hud-connection">
         <span class="hud-label">Status:</span>
@@ -288,6 +315,17 @@ export class HUD {
     this._updateLayerCount();
     this._updateFreshness();
     this._updateConnectionDisplay();
+    this._updateMilitaryDisplay();
+  }
+
+  /**
+   * Update military aircraft count display
+   * @private
+   */
+  _updateMilitaryDisplay() {
+    if (this._militaryCountElement) {
+      this._militaryCountElement.textContent = this._militaryCount;
+    }
   }
 
   /**
@@ -374,6 +412,7 @@ export class HUD {
     this._layerCountElement = null;
     this._connectionElement = null;
     this._freshnessContainer = null;
+    this._militaryCountElement = null;
     this._layers = {};
   }
 }

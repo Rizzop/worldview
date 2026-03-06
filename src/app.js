@@ -10,12 +10,14 @@ import { FlightLayer } from './layers/flights.js';
 import { SeismicLayer } from './layers/seismic.js';
 import { TrafficLayer } from './layers/traffic.js';
 import { CCTVLayer } from './layers/cctv.js';
+import { NewsLayer } from './layers/news.js';
 
 // Import UI modules
 import { Controls } from './ui/controls.js';
 import { InfoPanel } from './ui/info-panel.js';
 import { Search } from './ui/search.js';
 import { HUD } from './ui/hud.js';
+import { Regions } from './ui/regions.js';
 
 // Import shader manager
 import { ShaderManager } from './shaders/shader-manager.js';
@@ -71,16 +73,19 @@ export class WorldViewApp {
       flights: null,
       seismic: null,
       traffic: null,
-      cctv: null
+      cctv: null,
+      news: null
     };
 
-    // Layer enabled states (default all enabled)
+    // Layer enabled states (default: only flights enabled for cinematic look)
+    // Other layers toggled on manually per task requirements
     this.layerStates = {
-      satellites: options.layers?.satellites ?? true,
+      satellites: options.layers?.satellites ?? false,
       flights: options.layers?.flights ?? true,
-      seismic: options.layers?.seismic ?? true,
-      traffic: options.layers?.traffic ?? true,
-      cctv: options.layers?.cctv ?? true
+      seismic: options.layers?.seismic ?? false,
+      traffic: options.layers?.traffic ?? false,
+      cctv: options.layers?.cctv ?? false,
+      news: options.layers?.news ?? false
     };
 
     // UI components
@@ -88,6 +93,7 @@ export class WorldViewApp {
     this.infoPanel = null;
     this.search = null;
     this.hud = null;
+    this.regions = null;
 
     // Refresh interval IDs
     this._refreshIntervals = {
@@ -95,7 +101,8 @@ export class WorldViewApp {
       flights: null,
       seismic: null,
       traffic: null,
-      cctv: null
+      cctv: null,
+      news: null
     };
 
     // Initialization state
@@ -217,6 +224,21 @@ export class WorldViewApp {
       this.layers.cctv = null;
       this.layerStates.cctv = false;
     }
+
+    // Initialize News Layer (GDELT)
+    try {
+      this.layers.news = new NewsLayer({
+        query: 'conflict military',
+        timespan: '1h',
+        timeout: 30000,
+        retries: 2
+      });
+      console.log('[WorldView] NewsLayer initialized');
+    } catch (error) {
+      console.error('[WorldView] Failed to initialize NewsLayer:', error.message);
+      this.layers.news = null;
+      this.layerStates.news = false;
+    }
   }
 
   /**
@@ -278,6 +300,17 @@ export class WorldViewApp {
       }
     } catch (error) {
       console.error('[WorldView] Failed to initialize ShaderManager:', error.message);
+    }
+
+    // Initialize Regions dropdown
+    try {
+      this.regions = new Regions({
+        globe: this.globe,
+        container: 'regionsContainer'
+      });
+      console.log('[WorldView] Regions initialized');
+    } catch (error) {
+      console.error('[WorldView] Failed to initialize Regions:', error.message);
     }
   }
 
@@ -425,6 +458,11 @@ export class WorldViewApp {
           // CCTV doesn't need to fetch, data is built-in
           layer.render(this.globe);
           break;
+        case 'news':
+          // Fetch GDELT news events and render
+          await layer.fetchAndParse();
+          layer.render(this.globe);
+          break;
       }
       console.log(`[WorldView] Layer '${layerName}' enabled and rendered`);
     } catch (error) {
@@ -530,6 +568,9 @@ export class WorldViewApp {
       case 'cctv':
         intervalMs = refreshRates.cctv || 60000;
         break;
+      case 'news':
+        intervalMs = refreshRates.news || 300000; // 5 minutes
+        break;
       default:
         intervalMs = 5000;
     }
@@ -594,6 +635,17 @@ export class WorldViewApp {
         case 'cctv':
           // CCTV feeds are static, no refresh needed
           break;
+        case 'news':
+          // Fetch new news events and render
+          await layer.fetchAndParse();
+          layer.render(this.globe);
+          break;
+      }
+
+      // Update military count in HUD after flight refresh
+      if (layerName === 'flights' && this.hud && this.layers.flights) {
+        const militaryCount = this.layers.flights.getMilitaryCount();
+        this.hud.setMilitaryCount(militaryCount);
       }
     } catch (error) {
       console.error(`[WorldView] Error refreshing layer '${layerName}':`, error.message);
@@ -625,6 +677,13 @@ export class WorldViewApp {
 
     // Listen for earthquake clicks
     document.addEventListener('earthquakeClick', (event) => {
+      if (this.infoPanel) {
+        this.infoPanel.show(event.detail);
+      }
+    });
+
+    // Listen for news clicks
+    document.addEventListener('newsClick', (event) => {
       if (this.infoPanel) {
         this.infoPanel.show(event.detail);
       }
@@ -694,6 +753,9 @@ export class WorldViewApp {
     }
     if (this.shaderManager) {
       this.shaderManager.destroy();
+    }
+    if (this.regions) {
+      this.regions.destroy();
     }
 
     // Destroy globe

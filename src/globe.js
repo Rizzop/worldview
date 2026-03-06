@@ -32,21 +32,30 @@ export class Globe {
     // Store config reference for camera setup
     config = cfg;
 
-    // Default viewer options
+    // Default viewer options - cinematic minimal UI
+    // Hide all default Cesium UI for spy-thriller aesthetic
     const defaultOptions = {
       animation: false,
       baseLayerPicker: false,
       fullscreenButton: false,
       vrButton: false,
       geocoder: false,
-      homeButton: true,
-      infoBox: true,
-      sceneModePicker: true,
-      selectionIndicator: true,
+      homeButton: false,
+      infoBox: false,
+      sceneModePicker: false,
+      selectionIndicator: false,
       timeline: false,
       navigationHelpButton: false,
-      scene3DOnly: false,
-      shouldAnimate: true
+      scene3DOnly: true,
+      shouldAnimate: true,
+      // Dark minimal background
+      skyBox: false,
+      skyAtmosphere: true,
+      contextOptions: {
+        webgl: {
+          alpha: false
+        }
+      }
     };
 
     // Merge user options with defaults
@@ -55,11 +64,60 @@ export class Globe {
     // Initialize Cesium.Viewer
     this.viewer = new Cesium.Viewer(container, viewerOptions);
 
+    // Cinematic scene configuration
+    this._setupCinematicScene();
+
     // Configure default camera position from config
     this._setupCamera();
 
     // Store entity references for management
     this._entities = new Map();
+  }
+
+  /**
+   * Configure cinematic scene settings for spy-thriller aesthetic
+   * Enables day/night lighting, atmosphere glow, and hides remaining UI elements
+   * @private
+   */
+  _setupCinematicScene() {
+    const scene = this.viewer.scene;
+    const globe = scene.globe;
+
+    // Enable day/night lighting on the globe
+    globe.enableLighting = true;
+
+    // Enable atmosphere glow
+    scene.skyAtmosphere.show = true;
+    scene.skyAtmosphere.brightnessShift = 0.3;
+
+    // Dark blue/black background color
+    scene.backgroundColor = Cesium.Color.fromCssColorString('#0a0a14');
+
+    // Fog for depth effect
+    scene.fog.enabled = true;
+    scene.fog.density = 0.0001;
+
+    // High dynamic range for better visual quality
+    scene.highDynamicRange = false;
+
+    // Hide any remaining UI elements that might appear
+    // Hide timeline if it exists
+    if (this.viewer.timeline) {
+      this.viewer.timeline.container.style.display = 'none';
+    }
+    // Hide animation controller if it exists
+    if (this.viewer.animation) {
+      this.viewer.animation.container.style.display = 'none';
+    }
+    // Hide credit container
+    if (this.viewer._cesiumWidget && this.viewer._cesiumWidget._creditContainer) {
+      this.viewer._cesiumWidget._creditContainer.style.display = 'none';
+    }
+    // Alternative credit container hiding
+    const creditContainer = this.viewer.cesiumWidget?.creditContainer;
+    if (creditContainer) {
+      creditContainer.style.display = 'none';
+    }
   }
 
   /**

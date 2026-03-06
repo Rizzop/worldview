@@ -12,6 +12,7 @@ const ENTITY_TYPES = {
   FLIGHT: 'flight',
   EARTHQUAKE: 'earthquake',
   CCTV: 'cctv',
+  NEWS: 'news',
 };
 
 /**
@@ -73,6 +74,7 @@ export class InfoPanel {
       if (type === 'flight') return ENTITY_TYPES.FLIGHT;
       if (type === 'earthquake') return ENTITY_TYPES.EARTHQUAKE;
       if (type === 'cctv') return ENTITY_TYPES.CCTV;
+      if (type === 'news') return ENTITY_TYPES.NEWS;
     }
 
     // Detect by unique properties
@@ -80,6 +82,7 @@ export class InfoPanel {
     if (entity.icao24 !== undefined) return ENTITY_TYPES.FLIGHT;
     if (entity.magnitude !== undefined && entity.depth !== undefined) return ENTITY_TYPES.EARTHQUAKE;
     if (entity.feedId !== undefined || entity.feedUrl !== undefined) return ENTITY_TYPES.CCTV;
+    if (entity.headline !== undefined && entity.source !== undefined) return ENTITY_TYPES.NEWS;
 
     return null;
   }
@@ -103,6 +106,8 @@ export class InfoPanel {
         return entity.place || `M${entity.magnitude || '?'} Earthquake`;
       case ENTITY_TYPES.CCTV:
         return entity.name || entity.feedId || 'CCTV Feed';
+      case ENTITY_TYPES.NEWS:
+        return entity.headline || 'News Event';
       default:
         return entity.name || 'Unknown Entity';
     }
@@ -219,6 +224,8 @@ export class InfoPanel {
       feedUrl: 'Feed URL',
       feedType: 'Feed Type',
       feedRegion: 'Region',
+      headline: 'Headline',
+      source: 'Source',
     };
 
     if (keyNames[key]) {
@@ -255,6 +262,10 @@ export class InfoPanel {
       [ENTITY_TYPES.CCTV]: {
         order: ['name', 'feedId', 'feedType', 'feedRegion', 'lat', 'lon', 'feedUrl', 'url', 'lastTest'],
         skip: new Set(['type', 'id']),
+      },
+      [ENTITY_TYPES.NEWS]: {
+        order: ['headline', 'source', 'timestamp', 'lat', 'lon', 'url', 'lastFetch'],
+        skip: new Set(['type', 'id', 'imageUrl', 'tone']),
       },
     };
 
@@ -347,6 +358,7 @@ export class InfoPanel {
       [ENTITY_TYPES.FLIGHT]: '✈',
       [ENTITY_TYPES.EARTHQUAKE]: '🌍',
       [ENTITY_TYPES.CCTV]: '📷',
+      [ENTITY_TYPES.NEWS]: '📰',
     };
     return icons[type] || '📍';
   }
