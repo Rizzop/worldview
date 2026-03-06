@@ -6,14 +6,11 @@
 
 import { fetchWithRetry } from '../utils/api.js';
 
-// Cesium is only available in browser environment
-let Cesium;
-try {
-  Cesium = (await import('cesium')).default || (await import('cesium'));
-} catch (e) {
-  // Cesium not available (Node.js environment) - render will be no-op
-  Cesium = null;
-}
+// Use Cesium from global scope (loaded via CDN in index.html)
+// In Node.js environment, Cesium will be null
+const Cesium = (typeof window !== 'undefined' && window.Cesium) ||
+               (typeof globalThis !== 'undefined' && globalThis.Cesium) ||
+               null;
 
 /**
  * Default fetch timeout for testing camera connectivity (5 seconds)

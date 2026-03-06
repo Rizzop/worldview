@@ -1,14 +1,27 @@
 // Globe Module - CesiumJS Viewer Wrapper
 // Provides globe rendering foundation for satellite visualization
 
-import * as Cesium from 'cesium';
+// Use Cesium from global scope (loaded via CDN in index.html)
+const Cesium = window.Cesium || globalThis.Cesium;
 
 // Import config, falling back to example if config.js doesn't exist
 let config;
 try {
   config = (await import('../config.js')).default;
 } catch (e) {
-  config = (await import('../config.example.js')).default;
+  try {
+    config = (await import('../config.example.js')).default;
+  } catch (e2) {
+    // Fallback to minimal default config if neither exists
+    config = {
+      CESIUM_ION_TOKEN: '',
+      view: {
+        defaultLatitude: 0,
+        defaultLongitude: 0,
+        defaultHeight: 20000000
+      }
+    };
+  }
 }
 
 /**

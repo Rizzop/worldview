@@ -4,7 +4,11 @@
  * Given TLE strings and a timestamp, returns lat/lon/alt.
  */
 
-import * as satellite from 'satellite.js';
+// Use satellite.js from global scope (loaded via CDN in index.html)
+// In Node.js, it may be available via require/import or globalThis
+const satellite = (typeof window !== 'undefined' && window.satellite) ||
+                  (typeof globalThis !== 'undefined' && globalThis.satellite) ||
+                  null;
 
 /**
  * Propagate a satellite position from TLE data at a given time
@@ -18,6 +22,11 @@ import * as satellite from 'satellite.js';
  *   alt: altitude in kilometers above Earth's surface
  */
 export function propagateTLE(line1, line2, date) {
+  // Check if satellite.js is available
+  if (!satellite) {
+    throw new Error('satellite.js library not loaded');
+  }
+
   // Validate inputs
   if (!line1 || !line2 || typeof line1 !== 'string' || typeof line2 !== 'string') {
     throw new Error('Invalid TLE: line1 and line2 must be non-empty strings');
