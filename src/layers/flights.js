@@ -1,10 +1,20 @@
 /**
  * Flight Data Layer - OpenSky Network
  * Fetches live aircraft positions from OpenSky Network API and parses into flight objects.
- * Data-only layer, no rendering.
+ * Renders aircraft on a Cesium globe with color-coded markers based on military/civilian status.
  */
 
 import { fetchWithRetry } from '../utils/api.js';
+import { isMilitary } from './military.js';
+
+// Cesium is only available in browser environment
+let Cesium;
+try {
+  Cesium = (await import('cesium')).default || (await import('cesium'));
+} catch (e) {
+  // Cesium not available (Node.js environment) - render will be no-op
+  Cesium = null;
+}
 
 /**
  * OpenSky Network API endpoint for all aircraft states
@@ -300,6 +310,196 @@ export class FlightLayer {
       lastFetch: this.lastFetch,
       responseTime: this.responseTime,
     };
+  }
+
+  /**
+   * Calculate marker size based on altitude
+   * Low altitude = smaller marker, high altitude = larger marker
+   * @param {number|null} altitude - Altitude in meters
+   * @returns {number} Pixel size for marker (8-16)
+   * @private
+   */
+  _getMarkerSizeByAltitude(altitude) {
+    if (altitude == null || altitude <= 0) {
+      return 8; // Ground or unknown altitude - minimum size
+    }
+
+    // Typical cruising altitude is ~10,000-12,000m
+    // Scale from 8px (ground) to 16px (high altitude)
+    const maxAltitude = 15000; // meters
+    const minSize = 8;
+    const maxSize = 16;
+
+    const normalizedAlt = Math.min(altitude, maxAltitude) / maxAltitude;
+    return Math.round(minSize + normalizedAlt * (maxSize - minSize));
+  }
+
+  /**
+   * Get color based on altitude (green=low, red=high)
+   * @param {number|null} altitude - Altitude in meters
+   * @returns {Object} Cesium Color object
+   * @private
+   */
+  _getAltitudeColor(altitude) {
+    if (!Cesium) return null;
+
+    if (altitude == null || altitude <= 0) {
+      return Cesium.Color.GREEN; // Ground or unknown - green
+    }
+
+    // Interpolate from green (low) to red (high)
+    const maxAltitude = 12000; // meters for full red
+    const ratio = Math.min(altitude / maxAltitude, 1);
+
+    // Green (0,1,0) -> Yellow (1,1,0) -> Red (1,0,0)
+    if (ratio <= 0.5) {
+      // Green to Yellow
+      const r = ratio * 2;
+      return new Cesium.Color(r, 1, 0, 1);
+    } else {
+      // Yellow to Red
+      const g = 1 - (ratio - 0.5) * 2;
+      return new Cesium.Color(1, g, 0, 1);
+    }
+  }
+
+  /**
+   * Render flights on the globe with markers and labels
+   * Military aircraft are colored red, civilian aircraft are colored blue.
+   * Marker size varies by altitude (larger = higher).
+   *
+   * @param {Object} globe - Globe instance with addEntity method
+   * @returns {Array<string>} Array of created entity IDs
+   */
+  render(globe) {
+    // Guard against null or undefined globe
+    if (!globe || typeof globe.addEntity !== 'function') {
+      return [];
+    }
+
+    // Guard against missing Cesium (Node.js environment)
+    if (!Cesium) {
+      return [];
+    }
+
+    const entityIds = [];
+    const self = this;
+
+    for (const flight of this.flights) {
+      // Skip flights without valid positions
+      if (flight.lat == null || flight.lon == null) {
+        continue;
+      }
+
+      // Skip flights on ground (optional, but cleaner visualization)
+      // Actually, let's keep them but with smaller markers
+
+      const entityId = `flight-${flight.icao24}`;
+
+      // Determine if this is a military aircraft
+      const military = isMilitary(flight);
+
+      // Color: military = red, civilian = blue
+      const markerColor = military ? Cesium.Color.RED : Cesium.Color.BLUE;
+
+      // Marker size based on altitude
+      const pixelSize = this._getMarkerSizeByAltitude(flight.altitude);
+
+      // Altitude for display (convert to feet for label)
+      const altFeet = flight.altitude != null ? Math.round(flight.altitude * 3.281) : 0;
+
+      // Callsign for label (fallback to ICAO24 if no callsign)
+      const labelText = flight.callsign || flight.icao24 || 'Unknown';
+
+      // Create flight marker entity with label
+      globe.addEntity(entityId, {
+        name: labelText,
+        position: Cesium.Cartesian3.fromDegrees(
+          flight.lon,
+          flight.lat,
+          (flight.altitude || 0) // Altitude already in meters
+        ),
+        point: {
+          pixelSize: pixelSize,
+          color: markerColor,
+          outlineColor: Cesium.Color.WHITE,
+          outlineWidth: 1,
+        },
+        label: {
+          text: labelText,
+          font: '11px sans-serif',
+          fillColor: Cesium.Color.WHITE,
+          outlineColor: Cesium.Color.BLACK,
+          outlineWidth: 2,
+          style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+          verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+          pixelOffset: new Cesium.Cartesian2(0, -10),
+          distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0, 5000000),
+        },
+        properties: {
+          icao24: flight.icao24,
+          callsign: flight.callsign,
+          isMilitary: military,
+          altitude: flight.altitude,
+          type: 'flight',
+        },
+      });
+
+      entityIds.push(entityId);
+    }
+
+    // Set up click handler on the viewer
+    if (globe.getViewer && typeof globe.getViewer === 'function') {
+      const viewer = globe.getViewer();
+      if (viewer && viewer.screenSpaceEventHandler) {
+        // Create a new handler for picking
+        const handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
+
+        handler.setInputAction((click) => {
+          const pickedObject = viewer.scene.pick(click.position);
+          if (Cesium.defined(pickedObject) && pickedObject.id) {
+            const entity = pickedObject.id;
+            const props = entity.properties;
+            if (props && props.icao24) {
+              const icao24 = props.icao24.getValue();
+              const info = self.getInfo(icao24);
+              if (info) {
+                // Dispatch custom event with flight info
+                const event = new CustomEvent('flightClick', { detail: info });
+                if (typeof document !== 'undefined') {
+                  document.dispatchEvent(event);
+                }
+              }
+            }
+          }
+        }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+
+        // Store handler reference for cleanup
+        this._clickHandler = handler;
+      }
+    }
+
+    return entityIds;
+  }
+
+  /**
+   * Remove all rendered flight entities from the globe
+   * @param {Object} globe - Globe instance with removeEntity method
+   */
+  removeAll(globe) {
+    if (!globe || typeof globe.removeEntity !== 'function') {
+      return;
+    }
+
+    for (const flight of this.flights) {
+      globe.removeEntity(`flight-${flight.icao24}`);
+    }
+
+    // Clean up click handler
+    if (this._clickHandler) {
+      this._clickHandler.destroy();
+      this._clickHandler = null;
+    }
   }
 }
 
