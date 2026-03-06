@@ -9,8 +9,9 @@ const Cesium = window.Cesium;
 // Config will be set by initGlobe or Globe constructor
 let config = null;
 
-// Country borders GeoJSON URL
-const COUNTRIES_GEOJSON_URL = 'https://raw.githubusercontent.com/datasets/geo-countries/master/data/countries.geojson';
+// Country borders GeoJSON URL - using smaller simplified version (under 500KB)
+// The full countries.geojson causes RangeError: Invalid array length
+const COUNTRIES_GEOJSON_URL = 'https://raw.githubusercontent.com/johan/world.geo.json/master/countries.geo.json';
 
 /**
  * Globe class - Wraps CesiumJS Viewer for satellite tracking visualization
@@ -281,17 +282,20 @@ export class Globe {
   /**
    * Load country borders from GeoJSON
    * Styles borders with cyan stroke at 0.3 opacity, transparent fill
+   * Uses simplified GeoJSON to avoid RangeError with large datasets
    * @private
    */
   async _loadCountryBorders() {
     try {
-      console.log('[Globe] Loading country borders...');
+      console.log('[Globe] Loading country borders from simplified GeoJSON...');
 
+      // Use clampToGround: false to avoid complex terrain processing
+      // that can cause RangeError with large polygon arrays
       this._bordersDataSource = await Cesium.GeoJsonDataSource.load(COUNTRIES_GEOJSON_URL, {
         stroke: Cesium.Color.CYAN.withAlpha(0.3),
         fill: Cesium.Color.TRANSPARENT,
         strokeWidth: 1,
-        clampToGround: true
+        clampToGround: false
       });
 
       this._bordersDataSource.name = 'countryBorders';
@@ -300,7 +304,10 @@ export class Globe {
 
       console.log('[Globe] Country borders loaded successfully');
     } catch (error) {
-      console.error('[Globe] Failed to load country borders:', error.message);
+      // Gracefully handle border loading failures - never kill the globe
+      console.warn('[Globe] Failed to load country borders (non-fatal):', error.message);
+      this._bordersDataSource = null;
+      this._bordersVisible = false;
     }
   }
 
@@ -309,9 +316,14 @@ export class Globe {
    * @param {boolean} visible - Whether to show borders
    */
   setBordersVisible(visible) {
-    this._bordersVisible = visible;
-    if (this._bordersDataSource) {
-      this._bordersDataSource.show = visible;
+    try {
+      this._bordersVisible = visible;
+      if (this._bordersDataSource) {
+        this._bordersDataSource.show = visible;
+      }
+    } catch (error) {
+      // Never let border toggle crash the globe
+      console.warn('[Globe] Failed to toggle borders visibility:', error.message);
     }
   }
 
