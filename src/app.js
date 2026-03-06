@@ -228,10 +228,10 @@ export class WorldViewApp {
     }
 
     // Initialize News Layer (GDELT)
+    // Do NOT override query/timespan - NewsLayer defaults are per task spec:
+    // query: conflict war military attack missile airstrike, timespan: 24h
     try {
       this.layers.news = new NewsLayer({
-        query: 'conflict military',
-        timespan: '1h',
         timeout: 30000,
         retries: 2
       });
@@ -506,6 +506,10 @@ export class WorldViewApp {
           // Fetch GDELT news events and render
           await layer.fetchAndParse();
           layer.render(this.globe);
+          // Update HUD with news count
+          if (this.hud) {
+            this.hud.setNewsCount(layer.count);
+          }
           break;
       }
       console.log(`[WorldView] Layer '${layerName}' enabled and rendered`);
@@ -691,6 +695,12 @@ export class WorldViewApp {
         const militaryCount = this.layers.flights.getMilitaryCount();
         this.hud.setMilitaryCount(militaryCount);
       }
+
+      // Update news count in HUD after news refresh
+      if (layerName === 'news' && this.hud && this.layers.news) {
+        const newsCount = this.layers.news.count;
+        this.hud.setNewsCount(newsCount);
+      }
     } catch (error) {
       console.error(`[WorldView] Error refreshing layer '${layerName}':`, error.message);
     }
@@ -735,6 +745,27 @@ export class WorldViewApp {
       if (this.infoPanel) {
         this.infoPanel.show(event.detail);
       }
+    });
+
+    // Per task spec PART D: When region is selected, auto-enable news layer
+    document.addEventListener('enableNewsLayer', (event) => {
+      // Auto-enable news layer if not already enabled
+      if (!this.layerStates.news && this.layers.news) {
+        console.log('[WorldView] Auto-enabling News layer for region:', event.detail?.regionName);
+        this._handleLayerToggle('news', true);
+        // Update checkbox in controls if available
+        if (this.controls && this.controls.setLayerState) {
+          this.controls.setLayerState('news', true);
+        }
+      }
+
+      // Update HUD with news event count after a brief delay for fetch
+      setTimeout(() => {
+        if (this.hud && this.layers.news) {
+          const newsCount = this.layers.news.count;
+          this.hud.setNewsCount && this.hud.setNewsCount(newsCount);
+        }
+      }, 2000);
     });
   }
 

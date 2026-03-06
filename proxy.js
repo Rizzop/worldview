@@ -1,12 +1,12 @@
 import http from 'http';
 import https from 'https';
 
-const PORT = 8091;
+const PORT = process.env.PROXY_PORT || 8091;
 const OPENSKY_BASE = 'https://opensky-network.org';
 const CELESTRAK_BASE = 'https://celestrak.org';
 const GDELT_BASE = 'https://api.gdeltproject.org';
-const CLIENT_ID = 'ryanramirez@live.com-api-client';
-const CLIENT_SECRET = 'J3t4jg6IL30CEW0yWaE9M5cTukiCPaTs';
+const CLIENT_ID = process.env.OPENSKY_CLIENT_ID || '';
+const CLIENT_SECRET = process.env.OPENSKY_CLIENT_SECRET || '';
 const TOKEN_URL = 'https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token';
 
 let accessToken = null;

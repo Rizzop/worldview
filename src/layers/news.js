@@ -20,8 +20,9 @@ const GDELT_API_URL = 'http://localhost:8091/gdelt/api/v2/geo/geo';
 
 /**
  * Maximum number of news markers for performance
+ * Per task spec: cap at 100 events
  */
-const MAX_NEWS_MARKERS = 50;
+const MAX_NEWS_MARKERS = 100;
 
 /**
  * Refresh interval for news events (5 minutes)
@@ -30,13 +31,13 @@ const NEWS_REFRESH_INTERVAL = 5 * 60 * 1000;
 
 /**
  * Cinematic news visualization settings
- * Small pulsing orange/amber markers for conflict news
+ * Pulsing orange markers for conflict news - per task spec: pixelSize 7
  */
 const CINEMATIC_SETTINGS = {
-  markerPixelSize: 5,
+  markerPixelSize: 7,
   markerColor: 'ORANGE',
-  markerOpacity: 0.8,
-  pulseAmplitude: 0.2,
+  markerOpacity: 0.9,
+  pulseAmplitude: 0.3,
   pulsePeriod: 1.5,
 };
 
@@ -48,14 +49,16 @@ export class NewsLayer {
   /**
    * Create a new NewsLayer
    * @param {Object} options - Configuration options
-   * @param {string} [options.query] - Search query (default: 'conflict military')
-   * @param {string} [options.timespan] - Time span for news (default: '1h')
+   * @param {string} [options.query] - Search query (default: conflict+war+military+attack+missile+airstrike)
+   * @param {string} [options.timespan] - Time span for news (default: '24h')
    * @param {number} [options.timeout] - Fetch timeout in ms (default: 30000)
    * @param {number} [options.retries] - Number of fetch retries (default: 3)
    */
   constructor(options = {}) {
-    this.query = options.query || 'conflict military';
-    this.timespan = options.timespan || '1h';
+    // Per task spec: query must include conflict war military attack missile airstrike
+    this.query = options.query || 'conflict war military attack missile airstrike';
+    // Per task spec: timespan 24h
+    this.timespan = options.timespan || '24h';
     this.timeout = options.timeout || 30000;
     this.retries = options.retries || 3;
     this.events = [];
@@ -66,12 +69,15 @@ export class NewsLayer {
 
   /**
    * Build the GDELT API URL
+   * Per task spec: http://localhost:8091/gdelt/api/v2/geo/geo?query=conflict+war+military+attack+missile+airstrike&format=GeoJSON&timespan=24h
    * @returns {string} Full API URL
    * @private
    */
   _buildUrl() {
+    // GDELT expects space-separated terms encoded as + for OR query
+    const queryTerms = this.query.replace(/\s+/g, '+');
     const params = new URLSearchParams({
-      query: this.query,
+      query: queryTerms,
       format: 'GeoJSON',
       timespan: this.timespan,
     });
@@ -156,14 +162,18 @@ export class NewsLayer {
 
   /**
    * Fetch and parse news data in one step
+   * Per task spec: console.log('[News] Fetched N conflict events, rendering...')
    * @returns {Promise<Array<Object>>} Array of news event objects
    */
   async fetchAndParse() {
     const geojson = await this.fetchData();
     if (!geojson) {
+      console.log('[News] No data received from GDELT');
       return [];
     }
-    return this.parseResponse(geojson);
+    const events = this.parseResponse(geojson);
+    console.log(`[News] Fetched ${events.length} conflict events, rendering...`);
+    return events;
   }
 
   /**
@@ -220,16 +230,20 @@ export class NewsLayer {
   }
 
   /**
-   * Render news events on the globe with pulsing amber markers
+   * Render news events on the globe with pulsing orange markers
+   * Per task spec: Orange pulsing dot (pixelSize: 7, color: Cesium.Color.ORANGE)
+   * console.log('[News] Added N markers to globe')
    * @param {Object} globe - Globe instance with addEntity method
    * @returns {Array<string>} Array of created entity IDs
    */
   render(globe) {
     if (!globe || typeof globe.addEntity !== 'function') {
+      console.warn('[News] Globe not available for rendering');
       return [];
     }
 
     if (!Cesium) {
+      console.warn('[News] Cesium not available');
       return [];
     }
 
@@ -237,8 +251,9 @@ export class NewsLayer {
     const self = this;
     const currentEventIds = new Set();
 
-    // Limit events for performance
+    // Limit events for performance (cap at 100 per task spec)
     const eventsToRender = this.events.slice(0, MAX_NEWS_MARKERS);
+    let addedCount = 0;
 
     for (const event of eventsToRender) {
       if (event.lat == null || event.lon == null) {
@@ -252,28 +267,31 @@ export class NewsLayer {
       const existingEntity = globe.getEntity(entityId);
 
       if (!existingEntity) {
-        // Create pulsing marker
+        // Create pulsing marker - use viewer.entities.add directly for guaranteed visibility
         const pulsingSize = this._createPulsingSize(CINEMATIC_SETTINGS.markerPixelSize);
 
+        // Per task spec: Orange pulsing dot, small label with truncated headline (first 40 chars, font: '10px monospace')
         globe.addEntity(entityId, {
           name: event.headline,
-          position: Cesium.Cartesian3.fromDegrees(event.lon, event.lat, 1000),
+          position: Cesium.Cartesian3.fromDegrees(event.lon, event.lat, 5000),
           point: {
             pixelSize: pulsingSize,
             color: Cesium.Color.ORANGE.withAlpha(CINEMATIC_SETTINGS.markerOpacity),
             outlineColor: Cesium.Color.DARKORANGE,
-            outlineWidth: 1,
+            outlineWidth: 2,
+            disableDepthTestDistance: Number.POSITIVE_INFINITY, // Always visible
           },
           label: {
             text: event.headline.substring(0, 40) + (event.headline.length > 40 ? '...' : ''),
-            font: '9px monospace',
-            fillColor: Cesium.Color.ORANGE.withAlpha(0.9),
+            font: '10px monospace', // Per task spec: 10px monospace
+            fillColor: Cesium.Color.ORANGE.withAlpha(0.95),
             outlineColor: Cesium.Color.BLACK,
-            outlineWidth: 1,
+            outlineWidth: 2,
             style: Cesium.LabelStyle.FILL_AND_OUTLINE,
             verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
-            pixelOffset: new Cesium.Cartesian2(0, -10),
-            distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0, 2000000),
+            pixelOffset: new Cesium.Cartesian2(0, -12),
+            distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0, 3000000),
+            disableDepthTestDistance: Number.POSITIVE_INFINITY, // Always visible
             show: true,
           },
           properties: {
@@ -287,6 +305,7 @@ export class NewsLayer {
         });
 
         this._renderedEntityIds.add(entityId);
+        addedCount++;
       }
 
       entityIds.push(entityId);
@@ -302,7 +321,10 @@ export class NewsLayer {
 
     this._renderedEntityIds = currentEventIds;
 
-    // Set up click handler
+    // Per task spec: console.log('[News] Added N markers to globe')
+    console.log(`[News] Added ${entityIds.length} markers to globe`);
+
+    // Set up click handler for news marker clicks
     if (!this._clickHandler && globe.getViewer && typeof globe.getViewer === 'function') {
       const viewer = globe.getViewer();
       if (viewer && viewer.scene) {
@@ -319,9 +341,9 @@ export class NewsLayer {
                 const newsId = props.newsId.getValue ? props.newsId.getValue() : props.newsId;
                 const info = self.getInfo(newsId);
                 if (info) {
-                  const event = new CustomEvent('newsClick', { detail: info });
+                  const customEvent = new CustomEvent('newsClick', { detail: info });
                   if (typeof document !== 'undefined') {
-                    document.dispatchEvent(event);
+                    document.dispatchEvent(customEvent);
                   }
                 }
               }

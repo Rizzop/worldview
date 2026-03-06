@@ -212,6 +212,16 @@ export class Regions extends EventEmitter {
         }
       });
       document.dispatchEvent(hudEvent);
+
+      // Per task spec PART D: When user selects a region, auto-enable news layer
+      // Dispatch event to enable news layer if not already on
+      const newsEnableEvent = new CustomEvent('enableNewsLayer', {
+        detail: {
+          region: regionKey,
+          regionName: region.name
+        }
+      });
+      document.dispatchEvent(newsEnableEvent);
     }
 
     // Emit event

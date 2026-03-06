@@ -63,6 +63,9 @@ export class HUD {
     // Military aircraft count
     this._militaryCount = 0;
 
+    // News event count
+    this._newsCount = 0;
+
     // DOM element references
     this._fpsElement = null;
     this._layerCountElement = null;
@@ -70,6 +73,7 @@ export class HUD {
     this._freshnessContainer = null;
     this._militaryCountElement = null;
     this._regionElement = null;
+    this._newsCountElement = null;
 
     // Current region name
     this._currentRegion = 'GLOBAL';
@@ -195,6 +199,24 @@ export class HUD {
   }
 
   /**
+   * Set news event count
+   * Per task spec: HUD shows "NEWS: 47 events"
+   * @param {number} count - Number of news events
+   */
+  setNewsCount(count) {
+    this._newsCount = count;
+    this._updateNewsDisplay();
+  }
+
+  /**
+   * Get news event count
+   * @returns {number}
+   */
+  getNewsCount() {
+    return this._newsCount;
+  }
+
+  /**
    * Render the HUD to the DOM
    * @param {string|HTMLElement} container - Container element or ID
    * @returns {HTMLElement|null} The created HUD element, or null if DOM unavailable
@@ -235,6 +257,7 @@ export class HUD {
     this._freshnessContainer = this.element.querySelector('.hud-freshness-list');
     this._militaryCountElement = this.element.querySelector('.hud-military-value');
     this._regionElement = this.element.querySelector('.hud-region-value');
+    this._newsCountElement = this.element.querySelector('.hud-news-value');
 
     // Start FPS tracking
     this._startFPSTracking();
@@ -268,6 +291,11 @@ export class HUD {
         <span class="hud-label">MIL:</span>
         <span class="hud-military-value">0</span>
         <span class="hud-military-suffix">active</span>
+      </div>
+      <div class="hud-section hud-news">
+        <span class="hud-label">NEWS:</span>
+        <span class="hud-news-value">0</span>
+        <span class="hud-news-suffix">events</span>
       </div>
       <div class="hud-section hud-connection">
         <span class="hud-label">Status:</span>
@@ -361,6 +389,7 @@ export class HUD {
     this._updateFreshness();
     this._updateConnectionDisplay();
     this._updateMilitaryDisplay();
+    this._updateNewsDisplay();
   }
 
   /**
@@ -370,6 +399,16 @@ export class HUD {
   _updateMilitaryDisplay() {
     if (this._militaryCountElement) {
       this._militaryCountElement.textContent = this._militaryCount;
+    }
+  }
+
+  /**
+   * Update news event count display
+   * @private
+   */
+  _updateNewsDisplay() {
+    if (this._newsCountElement) {
+      this._newsCountElement.textContent = this._newsCount;
     }
   }
 
@@ -459,6 +498,7 @@ export class HUD {
     this._freshnessContainer = null;
     this._militaryCountElement = null;
     this._regionElement = null;
+    this._newsCountElement = null;
     this._layers = {};
   }
 }
