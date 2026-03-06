@@ -1,10 +1,19 @@
 /**
  * Seismic Data Layer - USGS Earthquakes
  * Fetches earthquake data from USGS GeoJSON API and parses into earthquake objects.
- * Data-only layer - no rendering logic.
+ * Renders earthquakes on a Cesium globe with pulsing circles sized by magnitude.
  */
 
 import { fetchWithRetry } from '../utils/api.js';
+
+// Cesium is only available in browser environment
+let Cesium;
+try {
+  Cesium = (await import('cesium')).default || (await import('cesium'));
+} catch (e) {
+  // Cesium not available (Node.js environment) - render will be no-op
+  Cesium = null;
+}
 
 /**
  * Default USGS earthquake feed URL (all earthquakes in the past day)
@@ -183,6 +192,209 @@ export class SeismicLayer {
       url: eq.url,
       lastFetch: this.lastFetch,
     };
+  }
+
+  /**
+   * Calculate circle radius based on earthquake magnitude
+   * Magnitude 5 = 50km radius, Magnitude 7 = 200km radius
+   * Uses exponential scaling for visual effect
+   * @param {number|null} magnitude - Earthquake magnitude
+   * @returns {number} Radius in meters
+   * @private
+   */
+  _getRadiusByMagnitude(magnitude) {
+    if (magnitude == null || magnitude < 0) {
+      return 25000; // Default 25km for unknown magnitude
+    }
+
+    // Linear interpolation: mag 5 = 50km, mag 7 = 200km
+    // slope = (200 - 50) / (7 - 5) = 75 km per magnitude unit
+    // For magnitudes below 5 or above 7, we still use the formula but clamp minimum
+    const baseRadius = 50000; // 50km at mag 5
+    const slope = 75000; // 75km per magnitude unit
+
+    const radius = baseRadius + (magnitude - 5) * slope;
+
+    // Minimum radius of 10km, maximum of 500km
+    return Math.max(10000, Math.min(500000, radius));
+  }
+
+  /**
+   * Get color based on earthquake depth
+   * Shallow (<70km) = red, Intermediate (70-300km) = orange, Deep (>300km) = blue
+   * @param {number|null} depth - Depth in kilometers
+   * @returns {Object} Cesium Color object
+   * @private
+   */
+  _getColorByDepth(depth) {
+    if (!Cesium) return null;
+
+    if (depth == null || depth < 0) {
+      return Cesium.Color.GRAY; // Unknown depth
+    }
+
+    if (depth < 70) {
+      // Shallow earthquake - red
+      return Cesium.Color.RED;
+    } else if (depth <= 300) {
+      // Intermediate earthquake - orange
+      return Cesium.Color.ORANGE;
+    } else {
+      // Deep earthquake - blue
+      return Cesium.Color.BLUE;
+    }
+  }
+
+  /**
+   * Create a pulsing radius callback for animated circle effect
+   * @param {number} baseRadius - Base radius in meters
+   * @param {number} pulseAmplitude - Pulse amplitude as fraction (0.0 - 1.0)
+   * @param {number} pulsePeriod - Pulse period in seconds
+   * @returns {Object} Cesium CallbackProperty for pulsing radius
+   * @private
+   */
+  _createPulsingRadius(baseRadius, pulseAmplitude = 0.2, pulsePeriod = 2.0) {
+    if (!Cesium) return baseRadius;
+
+    const startTime = Date.now();
+
+    return new Cesium.CallbackProperty(() => {
+      const elapsed = (Date.now() - startTime) / 1000; // seconds
+      const phase = (elapsed % pulsePeriod) / pulsePeriod; // 0 to 1
+      const pulseFactor = 1 + pulseAmplitude * Math.sin(phase * 2 * Math.PI);
+      return baseRadius * pulseFactor;
+    }, false);
+  }
+
+  /**
+   * Render earthquakes on the globe with pulsing circle markers
+   * Circle size scales with magnitude, color indicates depth
+   *
+   * @param {Object} globe - Globe instance with addEntity method
+   * @returns {Array<string>} Array of created entity IDs
+   */
+  render(globe) {
+    // Guard against null or undefined globe
+    if (!globe || typeof globe.addEntity !== 'function') {
+      return [];
+    }
+
+    // Guard against missing Cesium (Node.js environment)
+    if (!Cesium) {
+      return [];
+    }
+
+    const entityIds = [];
+    const self = this;
+
+    for (const eq of this.earthquakes) {
+      // Skip earthquakes without valid positions
+      if (eq.lat == null || eq.lon == null) {
+        continue;
+      }
+
+      const entityId = `earthquake-${eq.id}`;
+
+      // Calculate radius based on magnitude
+      const baseRadius = this._getRadiusByMagnitude(eq.magnitude);
+
+      // Get color based on depth
+      const color = this._getColorByDepth(eq.depth);
+
+      // Create pulsing radius effect
+      const pulsingRadius = this._createPulsingRadius(baseRadius);
+
+      // Magnitude display string
+      const magStr = eq.magnitude != null ? eq.magnitude.toFixed(1) : '?';
+
+      // Create earthquake circle entity with pulsing animation
+      globe.addEntity(entityId, {
+        name: eq.place || `M${magStr} Earthquake`,
+        position: Cesium.Cartesian3.fromDegrees(eq.lon, eq.lat, 0),
+        ellipse: {
+          semiMajorAxis: pulsingRadius,
+          semiMinorAxis: pulsingRadius,
+          material: color.withAlpha(0.5),
+          outline: true,
+          outlineColor: color,
+          outlineWidth: 2,
+          height: 0,
+          heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+        },
+        label: {
+          text: `M${magStr}`,
+          font: '12px sans-serif',
+          fillColor: Cesium.Color.WHITE,
+          outlineColor: Cesium.Color.BLACK,
+          outlineWidth: 2,
+          style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+          verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+          pixelOffset: new Cesium.Cartesian2(0, -5),
+          distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0, 10000000),
+        },
+        properties: {
+          earthquakeId: eq.id,
+          magnitude: eq.magnitude,
+          depth: eq.depth,
+          type: 'earthquake',
+        },
+      });
+
+      entityIds.push(entityId);
+    }
+
+    // Set up click handler on the viewer
+    if (globe.getViewer && typeof globe.getViewer === 'function') {
+      const viewer = globe.getViewer();
+      if (viewer && viewer.screenSpaceEventHandler) {
+        // Create a new handler for picking
+        const handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
+
+        handler.setInputAction((click) => {
+          const pickedObject = viewer.scene.pick(click.position);
+          if (Cesium.defined(pickedObject) && pickedObject.id) {
+            const entity = pickedObject.id;
+            const props = entity.properties;
+            if (props && props.earthquakeId) {
+              const earthquakeId = props.earthquakeId.getValue();
+              const info = self.getInfo(earthquakeId);
+              if (info) {
+                // Dispatch custom event with earthquake info
+                const event = new CustomEvent('earthquakeClick', { detail: info });
+                if (typeof document !== 'undefined') {
+                  document.dispatchEvent(event);
+                }
+              }
+            }
+          }
+        }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+
+        // Store handler reference for cleanup
+        this._clickHandler = handler;
+      }
+    }
+
+    return entityIds;
+  }
+
+  /**
+   * Remove all rendered earthquake entities from the globe
+   * @param {Object} globe - Globe instance with removeEntity method
+   */
+  removeAll(globe) {
+    if (!globe || typeof globe.removeEntity !== 'function') {
+      return;
+    }
+
+    for (const eq of this.earthquakes) {
+      globe.removeEntity(`earthquake-${eq.id}`);
+    }
+
+    // Clean up click handler
+    if (this._clickHandler) {
+      this._clickHandler.destroy();
+      this._clickHandler = null;
+    }
   }
 }
 
