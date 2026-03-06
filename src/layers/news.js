@@ -85,7 +85,33 @@ const CINEMATIC_SETTINGS = {
   markerOpacity: 0.9,
   pulseAmplitude: 0.3,
   pulsePeriod: 1.5,
+  // Glow effect settings - larger semi-transparent circle behind marker
+  glowPixelSize: 20,
+  glowOpacity: 0.15,
 };
+
+/**
+ * Parse GDELT date format "20260306T090000Z" into a Date object
+ * @param {string|Date} dateValue - GDELT date string or Date object
+ * @returns {Date} Parsed Date object
+ */
+function parseGdeltDate(dateValue) {
+  if (dateValue instanceof Date && !isNaN(dateValue.getTime())) {
+    return dateValue;
+  }
+  if (typeof dateValue === 'string') {
+    // GDELT seendate format: 20260306T090000Z
+    const parsed = dateValue.replace(
+      /(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z/,
+      '$1-$2-$3T$4:$5:$6Z'
+    );
+    const date = new Date(parsed);
+    if (!isNaN(date.getTime())) {
+      return date;
+    }
+  }
+  return new Date();
+}
 
 /**
  * NewsLayer class
@@ -199,7 +225,7 @@ export class NewsLayer {
         headline: article.title || 'News Event',
         source: article.domain || 'Unknown Source',
         url: article.url || null,
-        timestamp: article.seendate ? new Date(article.seendate) : new Date(),
+        timestamp: article.seendate ? parseGdeltDate(article.seendate) : new Date(),
         lat,
         lon,
         country: article.sourcecountry,
@@ -320,11 +346,30 @@ export class NewsLayer {
       if (!existingEntity) {
         // Create pulsing marker - use viewer.entities.add directly for guaranteed visibility
         const pulsingSize = this._createPulsingSize(CINEMATIC_SETTINGS.markerPixelSize);
+        const position = Cesium.Cartesian3.fromDegrees(event.lon, event.lat, 5000);
+
+        // Add glow effect - larger semi-transparent orange circle behind marker
+        const glowEntityId = `${entityId}-glow`;
+        globe.addEntity(glowEntityId, {
+          position: position,
+          point: {
+            pixelSize: CINEMATIC_SETTINGS.glowPixelSize,
+            color: Cesium.Color.ORANGE.withAlpha(CINEMATIC_SETTINGS.glowOpacity),
+            outlineColor: Cesium.Color.TRANSPARENT,
+            outlineWidth: 0,
+            disableDepthTestDistance: Number.POSITIVE_INFINITY,
+          },
+          properties: {
+            type: 'news-glow',
+            parentId: event.id,
+          },
+        });
+        this._renderedEntityIds.add(glowEntityId);
 
         // Per task spec: Orange pulsing dot, small label with truncated headline (first 40 chars, font: '10px monospace')
         globe.addEntity(entityId, {
           name: event.headline,
-          position: Cesium.Cartesian3.fromDegrees(event.lon, event.lat, 5000),
+          position: position,
           point: {
             pixelSize: pulsingSize,
             color: Cesium.Color.ORANGE.withAlpha(CINEMATIC_SETTINGS.markerOpacity),

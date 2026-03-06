@@ -4,6 +4,8 @@
  * Shows all available data fields with a close button.
  */
 
+import { parseGdeltDate, formatTimeAgo } from './news-feed.js';
+
 /**
  * Entity type identifiers
  */
@@ -125,18 +127,37 @@ export class InfoPanel {
       return 'N/A';
     }
 
-    // Handle Date objects
+    // Handle Date objects - show relative time for recent dates (within 24h)
     if (value instanceof Date) {
+      const now = Date.now();
+      const diff = now - value.getTime();
+      // If within 24 hours, show relative time
+      if (diff >= 0 && diff < 86400000 && key === 'timestamp') {
+        return formatTimeAgo(value);
+      }
       return value.toLocaleString();
     }
 
     // Handle ISO date strings
     if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(value)) {
       try {
-        return new Date(value).toLocaleString();
+        const date = new Date(value);
+        const now = Date.now();
+        const diff = now - date.getTime();
+        // If within 24 hours and is a timestamp field, show relative time
+        if (diff >= 0 && diff < 86400000 && key === 'timestamp') {
+          return formatTimeAgo(date);
+        }
+        return date.toLocaleString();
       } catch (e) {
         return value;
       }
+    }
+
+    // Handle GDELT date format strings (20260306T090000Z)
+    if (typeof value === 'string' && /^\d{8}T\d{6}Z$/.test(value)) {
+      const date = parseGdeltDate(value);
+      return formatTimeAgo(date);
     }
 
     // Handle numbers with context

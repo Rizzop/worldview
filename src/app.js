@@ -18,6 +18,7 @@ import { InfoPanel } from './ui/info-panel.js';
 import { Search } from './ui/search.js';
 import { HUD } from './ui/hud.js';
 import { Regions } from './ui/regions.js';
+import { NewsFeed } from './ui/news-feed.js';
 
 // Import shader manager
 import { ShaderManager } from './shaders/shader-manager.js';
@@ -94,6 +95,7 @@ export class WorldViewApp {
     this.search = null;
     this.hud = null;
     this.regions = null;
+    this.newsFeed = null;
 
     // Refresh interval IDs
     this._refreshIntervals = {
@@ -314,6 +316,18 @@ export class WorldViewApp {
     } catch (error) {
       console.error('[WorldView] Failed to initialize Regions:', error.message);
     }
+
+    // Initialize News Feed panel (right side panel)
+    try {
+      this.newsFeed = new NewsFeed({
+        globe: this.globe,
+        newsLayer: this.layers.news,
+        infoPanel: this.infoPanel
+      });
+      console.log('[WorldView] NewsFeed initialized');
+    } catch (error) {
+      console.error('[WorldView] Failed to initialize NewsFeed:', error.message);
+    }
   }
 
   /**
@@ -390,6 +404,10 @@ export class WorldViewApp {
       if (this.hud) {
         this.hud.registerLayer(layerName, layer);
       }
+      // Show news feed panel when News layer is enabled
+      if (layerName === 'news' && this.newsFeed) {
+        this.newsFeed.show();
+      }
     } else {
       // Disable layer: remove from globe
       this._disableLayer(layerName);
@@ -398,6 +416,10 @@ export class WorldViewApp {
       // Unregister from HUD
       if (this.hud) {
         this.hud.unregisterLayer(layerName);
+      }
+      // Hide news feed panel when News layer is disabled
+      if (layerName === 'news' && this.newsFeed) {
+        this.newsFeed.hide();
       }
     }
   }
@@ -509,6 +531,10 @@ export class WorldViewApp {
           // Update HUD with news count
           if (this.hud) {
             this.hud.setNewsCount(layer.count);
+          }
+          // Update news feed panel with events
+          if (this.newsFeed) {
+            this.newsFeed.update(layer.events);
           }
           break;
       }
@@ -700,6 +726,10 @@ export class WorldViewApp {
       if (layerName === 'news' && this.hud && this.layers.news) {
         const newsCount = this.layers.news.count;
         this.hud.setNewsCount(newsCount);
+      }
+      // Update news feed panel after news refresh
+      if (layerName === 'news' && this.newsFeed && this.layers.news) {
+        this.newsFeed.update(this.layers.news.events);
       }
     } catch (error) {
       console.error(`[WorldView] Error refreshing layer '${layerName}':`, error.message);
@@ -968,6 +998,9 @@ export class WorldViewApp {
     }
     if (this.regions) {
       this.regions.destroy();
+    }
+    if (this.newsFeed) {
+      this.newsFeed.destroy();
     }
 
     // Destroy globe
