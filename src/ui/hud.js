@@ -69,10 +69,50 @@ export class HUD {
     this._connectionElement = null;
     this._freshnessContainer = null;
     this._militaryCountElement = null;
+    this._regionElement = null;
+
+    // Current region name
+    this._currentRegion = 'GLOBAL';
 
     // Render immediately if container provided
     if (options.container && this._domAvailable) {
       this.render(options.container);
+    }
+
+    // Listen for region change events
+    if (this._domAvailable) {
+      this._setupRegionListener();
+    }
+  }
+
+  /**
+   * Set up listener for region change events
+   * @private
+   */
+  _setupRegionListener() {
+    document.addEventListener('regionChange', (event) => {
+      if (event.detail && event.detail.name) {
+        this.setRegion(event.detail.name);
+      }
+    });
+  }
+
+  /**
+   * Set the current region display
+   * @param {string} regionName - Region name in uppercase
+   */
+  setRegion(regionName) {
+    this._currentRegion = regionName;
+    this._updateRegionDisplay();
+  }
+
+  /**
+   * Update region display
+   * @private
+   */
+  _updateRegionDisplay() {
+    if (this._regionElement) {
+      this._regionElement.textContent = this._currentRegion;
     }
   }
 
@@ -194,6 +234,7 @@ export class HUD {
     this._connectionElement = this.element.querySelector('.hud-connection-value');
     this._freshnessContainer = this.element.querySelector('.hud-freshness-list');
     this._militaryCountElement = this.element.querySelector('.hud-military-value');
+    this._regionElement = this.element.querySelector('.hud-region-value');
 
     // Start FPS tracking
     this._startFPSTracking();
@@ -218,6 +259,10 @@ export class HUD {
       <div class="hud-section hud-layers">
         <span class="hud-label">Layers:</span>
         <span class="hud-layer-count-value">0</span>
+      </div>
+      <div class="hud-section hud-region">
+        <span class="hud-label">REGION:</span>
+        <span class="hud-region-value">GLOBAL</span>
       </div>
       <div class="hud-section hud-military">
         <span class="hud-label">MIL:</span>
@@ -413,6 +458,7 @@ export class HUD {
     this._connectionElement = null;
     this._freshnessContainer = null;
     this._militaryCountElement = null;
+    this._regionElement = null;
     this._layers = {};
   }
 }

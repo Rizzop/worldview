@@ -698,6 +698,7 @@ export class WorldViewApp {
 
   /**
    * Set up event listeners for entity click events
+   * Uses Cesium ScreenSpaceEventHandler for LEFT_CLICK picking
    * @private
    */
   _setupEntityClickHandlers() {
@@ -705,7 +706,10 @@ export class WorldViewApp {
       return;
     }
 
-    // Listen for satellite clicks
+    // Set up Cesium ScreenSpaceEventHandler for entity picking
+    this._setupCesiumClickHandler();
+
+    // Listen for satellite clicks (from custom events)
     document.addEventListener('satelliteClick', (event) => {
       if (this.infoPanel) {
         this.infoPanel.show(event.detail);
@@ -732,6 +736,133 @@ export class WorldViewApp {
         this.infoPanel.show(event.detail);
       }
     });
+  }
+
+  /**
+   * Set up Cesium ScreenSpaceEventHandler for LEFT_CLICK entity picking
+   * @private
+   */
+  _setupCesiumClickHandler() {
+    if (!this.globe) {
+      return;
+    }
+
+    const viewer = this.globe.getViewer();
+    if (!viewer || !window.Cesium) {
+      return;
+    }
+
+    const Cesium = window.Cesium;
+
+    // Create ScreenSpaceEventHandler for click detection
+    this._clickHandler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
+
+    // Handle LEFT_CLICK events
+    this._clickHandler.setInputAction((click) => {
+      // Use scene.pick() to get clicked entity
+      const pickedObject = viewer.scene.pick(click.position);
+
+      if (Cesium.defined(pickedObject) && pickedObject.id) {
+        // Entity was clicked - extract entity data
+        const entity = pickedObject.id;
+        const entityData = this._extractEntityData(entity);
+
+        if (entityData && this.infoPanel) {
+          this.infoPanel.show(entityData);
+        }
+      } else {
+        // Clicked empty space - hide info panel
+        if (this.infoPanel) {
+          this.infoPanel.hide();
+        }
+      }
+    }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+  }
+
+  /**
+   * Extract displayable data from a Cesium entity
+   * @private
+   * @param {Object} entity - Cesium entity
+   * @returns {Object|null} Entity data object for info panel
+   */
+  _extractEntityData(entity) {
+    if (!entity) {
+      return null;
+    }
+
+    // Check for custom properties stored on the entity
+    if (entity.properties) {
+      const props = {};
+      const propertyNames = entity.properties.propertyNames;
+
+      if (propertyNames && propertyNames.length > 0) {
+        for (const name of propertyNames) {
+          const value = entity.properties[name];
+          // getValue() for Cesium Property objects, or direct value
+          props[name] = value && typeof value.getValue === 'function'
+            ? value.getValue()
+            : value;
+        }
+        return props;
+      }
+    }
+
+    // Fallback: build basic entity info from available data
+    const data = {};
+
+    // Get entity name
+    if (entity.name) {
+      data.name = entity.name;
+    }
+
+    // Get entity ID
+    if (entity.id) {
+      data.id = entity.id;
+
+      // Detect entity type from ID prefix
+      if (entity.id.startsWith('sat-')) {
+        data.type = 'satellite';
+      } else if (entity.id.startsWith('flight-')) {
+        data.type = 'flight';
+      } else if (entity.id.startsWith('quake-')) {
+        data.type = 'earthquake';
+      } else if (entity.id.startsWith('cctv-')) {
+        data.type = 'cctv';
+      } else if (entity.id.startsWith('news-')) {
+        data.type = 'news';
+      }
+    }
+
+    // Get position if available
+    if (entity.position) {
+      try {
+        const Cesium = window.Cesium;
+        const cartesian = entity.position.getValue
+          ? entity.position.getValue(Cesium.JulianDate.now())
+          : entity.position;
+
+        if (cartesian) {
+          const cartographic = Cesium.Cartographic.fromCartesian(cartesian);
+          data.lat = Cesium.Math.toDegrees(cartographic.latitude);
+          data.lon = Cesium.Math.toDegrees(cartographic.longitude);
+          data.altitude = cartographic.height;
+        }
+      } catch (e) {
+        // Position extraction failed, continue without it
+      }
+    }
+
+    // Get description if available
+    if (entity.description) {
+      const desc = entity.description.getValue
+        ? entity.description.getValue()
+        : entity.description;
+      if (desc) {
+        data.description = desc;
+      }
+    }
+
+    return Object.keys(data).length > 0 ? data : null;
   }
 
   /**
@@ -783,6 +914,12 @@ export class WorldViewApp {
     // Remove all layers from globe
     for (const layerName of Object.keys(this.layers)) {
       this._disableLayer(layerName);
+    }
+
+    // Destroy click handler
+    if (this._clickHandler) {
+      this._clickHandler.destroy();
+      this._clickHandler = null;
     }
 
     // Destroy UI components

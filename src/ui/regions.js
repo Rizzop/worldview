@@ -7,6 +7,7 @@
 /**
  * Predefined region presets with camera settings
  * Each region has center coordinates and viewing range
+ * Per task spec: Global, Middle East (33,44), Ukraine (48.5,35), East Asia (24,120), Europe (50,10)
  */
 const REGION_PRESETS = {
   global: {
@@ -36,6 +37,13 @@ const REGION_PRESETS = {
     lat: 24.0,
     lon: 120.0,
     range: 2000000, // 2,000 km
+  },
+  europe: {
+    name: 'Europe',
+    description: 'European continent',
+    lat: 50.0,
+    lon: 10.0,
+    range: 3000000, // 3,000 km
   },
   korea: {
     name: 'Korean Peninsula',
@@ -150,6 +158,7 @@ export class Regions extends EventEmitter {
 
   /**
    * Fly to a specific region
+   * Uses Cesium camera.flyTo with Cartesian3.fromDegrees destination
    * @param {string} regionKey - Key of the region to fly to
    * @returns {boolean} True if flight initiated
    */
@@ -167,13 +176,42 @@ export class Regions extends EventEmitter {
       this._dropdown.value = regionKey;
     }
 
-    // Fly camera to region
-    if (this.globe && this.globe.flyTo) {
-      this.globe.flyTo({
-        latitude: region.lat,
-        longitude: region.lon,
-        height: region.range,
-      }, 2); // 2 second flight duration
+    // Fly camera to region using Cesium.Cartesian3.fromDegrees
+    if (this.globe) {
+      const viewer = this.globe.getViewer ? this.globe.getViewer() : null;
+      const Cesium = window.Cesium;
+
+      if (viewer && Cesium) {
+        // Use camera.flyTo with Cesium.Cartesian3.fromDegrees destination
+        viewer.camera.flyTo({
+          destination: Cesium.Cartesian3.fromDegrees(region.lon, region.lat, region.range),
+          duration: 2,
+          orientation: {
+            heading: Cesium.Math.toRadians(0),
+            pitch: Cesium.Math.toRadians(-90),
+            roll: 0
+          }
+        });
+        console.log(`[Regions] Flying to ${region.name} (${region.lat}, ${region.lon}) at ${region.range}m`);
+      } else if (this.globe.flyTo) {
+        // Fallback to globe.flyTo method
+        this.globe.flyTo({
+          latitude: region.lat,
+          longitude: region.lon,
+          height: region.range,
+        }, 2);
+      }
+    }
+
+    // Dispatch custom event for HUD update: "REGION: MIDDLE EAST" etc.
+    if (typeof document !== 'undefined') {
+      const hudEvent = new CustomEvent('regionChange', {
+        detail: {
+          region: regionKey,
+          name: region.name.toUpperCase()
+        }
+      });
+      document.dispatchEvent(hudEvent);
     }
 
     // Emit event
