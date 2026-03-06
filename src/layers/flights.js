@@ -14,9 +14,16 @@ const Cesium = (typeof window !== 'undefined' && window.Cesium) ||
                null;
 
 /**
- * OpenSky Network API endpoint for all aircraft states
+ * OpenSky proxy URL - use local proxy to avoid CORS issues
+ * The proxy runs on localhost:8091 and forwards requests to opensky-network.org
  */
-const DEFAULT_OPENSKY_URL = 'https://opensky-network.org/api/states/all';
+const DEFAULT_OPENSKY_PROXY_URL = 'http://localhost:8091';
+
+/**
+ * OpenSky Network API endpoint for all aircraft states
+ * Uses local proxy to avoid CORS and preflight issues with Authorization header
+ */
+const DEFAULT_OPENSKY_URL = DEFAULT_OPENSKY_PROXY_URL + '/api/states/all';
 
 /**
  * OpenSky states array field indices
@@ -622,4 +629,4 @@ export class FlightLayer {
   }
 }
 
-export { DEFAULT_OPENSKY_URL, OPENSKY_FIELDS };
+export { DEFAULT_OPENSKY_URL, DEFAULT_OPENSKY_PROXY_URL, OPENSKY_FIELDS };

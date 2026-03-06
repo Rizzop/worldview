@@ -7,6 +7,12 @@ export const config = {
   // Used as CESIUM_ION_TOKEN by globe.js
   CESIUM_ION_TOKEN: 'YOUR_CESIUM_ION_ACCESS_TOKEN_HERE',
 
+  // OpenSky Network Proxy URL
+  // Local proxy to avoid CORS issues with OpenSky API
+  // Run proxy.js first: node proxy.js
+  // The proxy forwards requests to opensky-network.org and adds CORS headers
+  OPENSKY_PROXY_URL: 'http://localhost:8091',
+
   // N2YO API Key (for satellite tracking data)
   // Get your key from: https://www.n2yo.com/api/
   n2yoApiKey: 'YOUR_N2YO_API_KEY_HERE',
