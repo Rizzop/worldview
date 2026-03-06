@@ -350,6 +350,16 @@ export class WorldViewApp {
       this._handleModeChange(mode);
     });
 
+    // Listen for map mode changes
+    this.controls.on('mapModeChange', ({ mode }) => {
+      this._handleMapModeChange(mode);
+    });
+
+    // Listen for borders toggle events
+    this.controls.on('bordersToggle', ({ visible }) => {
+      this._handleBordersToggle(visible);
+    });
+
     // Listen for opacity changes
     this.controls.on('opacityChange', ({ opacity }) => {
       this._handleOpacityChange(opacity);
@@ -417,6 +427,38 @@ export class WorldViewApp {
     // Opacity could be applied to various elements
     // For now, log the change
     console.log(`[WorldView] Opacity changed to: ${opacity}%`);
+  }
+
+  /**
+   * Handle map mode change from UI
+   * @private
+   * @param {string} mode - Map mode ('satellite', 'dark', 'hybrid')
+   */
+  _handleMapModeChange(mode) {
+    if (this.globe) {
+      try {
+        this.globe.setMapMode(mode);
+        console.log(`[WorldView] Map mode changed to: ${mode}`);
+      } catch (error) {
+        console.error('[WorldView] Failed to change map mode:', error.message);
+      }
+    }
+  }
+
+  /**
+   * Handle borders toggle from UI
+   * @private
+   * @param {boolean} visible - Whether borders should be visible
+   */
+  _handleBordersToggle(visible) {
+    if (this.globe) {
+      try {
+        this.globe.setBordersVisible(visible);
+        console.log(`[WorldView] Borders visibility: ${visible}`);
+      } catch (error) {
+        console.error('[WorldView] Failed to toggle borders:', error.message);
+      }
+    }
   }
 
   /**

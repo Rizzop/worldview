@@ -9,6 +9,9 @@ const Cesium = window.Cesium;
 // Config will be set by initGlobe or Globe constructor
 let config = null;
 
+// Country borders GeoJSON URL
+const COUNTRIES_GEOJSON_URL = 'https://raw.githubusercontent.com/datasets/geo-countries/master/data/countries.geojson';
+
 /**
  * Globe class - Wraps CesiumJS Viewer for satellite tracking visualization
  */
@@ -72,6 +75,13 @@ export class Globe {
 
     // Store entity references for management
     this._entities = new Map();
+
+    // Country borders data source
+    this._bordersDataSource = null;
+    this._bordersVisible = true;
+
+    // Load country borders on init
+    this._loadCountryBorders();
   }
 
   /**
@@ -269,6 +279,88 @@ export class Globe {
   }
 
   /**
+   * Load country borders from GeoJSON
+   * Styles borders with cyan stroke at 0.3 opacity, transparent fill
+   * @private
+   */
+  async _loadCountryBorders() {
+    try {
+      console.log('[Globe] Loading country borders...');
+
+      this._bordersDataSource = await Cesium.GeoJsonDataSource.load(COUNTRIES_GEOJSON_URL, {
+        stroke: Cesium.Color.CYAN.withAlpha(0.3),
+        fill: Cesium.Color.TRANSPARENT,
+        strokeWidth: 1,
+        clampToGround: true
+      });
+
+      this._bordersDataSource.name = 'countryBorders';
+      this.viewer.dataSources.add(this._bordersDataSource);
+      this._bordersDataSource.show = this._bordersVisible;
+
+      console.log('[Globe] Country borders loaded successfully');
+    } catch (error) {
+      console.error('[Globe] Failed to load country borders:', error.message);
+    }
+  }
+
+  /**
+   * Toggle country borders visibility
+   * @param {boolean} visible - Whether to show borders
+   */
+  setBordersVisible(visible) {
+    this._bordersVisible = visible;
+    if (this._bordersDataSource) {
+      this._bordersDataSource.show = visible;
+    }
+  }
+
+  /**
+   * Get current borders visibility state
+   * @returns {boolean}
+   */
+  getBordersVisible() {
+    return this._bordersVisible;
+  }
+
+  /**
+   * Set map mode (imagery layer)
+   * @param {string} mode - 'satellite', 'dark', or 'hybrid'
+   */
+  setMapMode(mode) {
+    const scene = this.viewer.scene;
+    const globe = scene.globe;
+    const imageryLayers = this.viewer.imageryLayers;
+
+    // Remove any CSS filter first
+    const container = this.viewer.container;
+    if (container) {
+      container.style.filter = '';
+    }
+
+    switch (mode) {
+      case 'dark':
+        // Apply dark filter via CSS for dark mode effect
+        if (container) {
+          container.style.filter = 'brightness(0.4) saturate(0.3) hue-rotate(180deg) invert(1)';
+        }
+        break;
+      case 'hybrid':
+        // Hybrid: increase saturation slightly for enhanced colors
+        if (container) {
+          container.style.filter = 'saturate(1.2) contrast(1.1)';
+        }
+        break;
+      case 'satellite':
+      default:
+        // Satellite: default imagery, no filter
+        break;
+    }
+
+    console.log(`[Globe] Map mode set to: ${mode}`);
+  }
+
+  /**
    * Destroy the globe and clean up resources
    */
   destroy() {
@@ -276,6 +368,7 @@ export class Globe {
       this.viewer.destroy();
     }
     this._entities.clear();
+    this._bordersDataSource = null;
   }
 }
 

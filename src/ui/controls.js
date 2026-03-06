@@ -68,6 +68,11 @@ const LAYER_TYPES = ['satellites', 'flights', 'military', 'seismic', 'traffic', 
 const VISUAL_MODES = ['none', 'nvg', 'flir', 'crt'];
 
 /**
+ * Available map modes for terrain/imagery
+ */
+const MAP_MODES = ['satellite', 'dark', 'hybrid'];
+
+/**
  * Controls class - UI control panel for globe visualization
  * Emits events: 'layerToggle', 'modeChange', 'opacityChange'
  */
@@ -78,6 +83,8 @@ export class Controls extends EventEmitter {
    * @param {string|HTMLElement} [options.container] - Container element or ID for the panel
    * @param {Object} [options.layers] - Initial layer visibility states
    * @param {string} [options.mode] - Initial visual mode ('none', 'nvg', 'flir', 'crt')
+   * @param {string} [options.mapMode] - Initial map mode ('satellite', 'dark', 'hybrid')
+   * @param {boolean} [options.bordersVisible] - Initial borders visibility
    * @param {number} [options.opacity] - Initial opacity (0-100)
    */
   constructor(options = {}) {
@@ -94,11 +101,15 @@ export class Controls extends EventEmitter {
     }
 
     this._visualMode = options.mode || 'none';
+    this._mapMode = options.mapMode || 'satellite';
+    this._bordersVisible = options.bordersVisible ?? true;
     this._opacity = options.opacity ?? 100;
 
     // Store DOM element references
     this._toggleElements = {};
     this._modeDropdown = null;
+    this._mapModeDropdown = null;
+    this._bordersToggle = null;
     this._opacitySlider = null;
 
     // If container provided and DOM available, render immediately
@@ -196,6 +207,64 @@ export class Controls extends EventEmitter {
     // Only emit if mode actually changed
     if (previousMode !== mode) {
       this.emit('modeChange', { mode, previousMode });
+    }
+  }
+
+  /**
+   * Get current map mode
+   * @returns {string} Current map mode ('satellite', 'dark', 'hybrid')
+   */
+  getMapMode() {
+    return this._mapMode;
+  }
+
+  /**
+   * Set map mode
+   * @param {string} mode - Map mode ('satellite', 'dark', 'hybrid')
+   */
+  setMapMode(mode) {
+    if (!MAP_MODES.includes(mode)) {
+      return;
+    }
+
+    const previousMode = this._mapMode;
+    this._mapMode = mode;
+
+    // Update DOM if available
+    if (this._mapModeDropdown) {
+      this._mapModeDropdown.value = mode;
+    }
+
+    // Only emit if mode actually changed
+    if (previousMode !== mode) {
+      this.emit('mapModeChange', { mode, previousMode });
+    }
+  }
+
+  /**
+   * Get borders visibility
+   * @returns {boolean} Whether borders are visible
+   */
+  getBordersVisible() {
+    return this._bordersVisible;
+  }
+
+  /**
+   * Set borders visibility
+   * @param {boolean} visible - Whether to show borders
+   */
+  setBordersVisible(visible) {
+    const wasVisible = this._bordersVisible;
+    this._bordersVisible = visible;
+
+    // Update DOM if available
+    if (this._bordersToggle) {
+      this._bordersToggle.checked = visible;
+    }
+
+    // Only emit if state actually changed
+    if (wasVisible !== visible) {
+      this.emit('bordersToggle', { visible });
     }
   }
 
@@ -305,10 +374,33 @@ export class Controls extends EventEmitter {
       </option>
     `).join('');
 
+    const mapModeOptionsHTML = MAP_MODES.map(mode => `
+      <option value="${mode}" ${this._mapMode === mode ? 'selected' : ''}>
+        ${this._formatMapModeName(mode)}
+      </option>
+    `).join('');
+
     return `
       <div class="controls-section">
         <h3 class="section-title">Layers</h3>
         ${layerTogglesHTML}
+        <div class="control-row">
+          <label class="toggle-label" for="toggle-borders">
+            <input type="checkbox"
+                   id="toggle-borders"
+                   class="borders-toggle"
+                   ${this._bordersVisible ? 'checked' : ''}>
+            <span class="toggle-text">Borders</span>
+          </label>
+        </div>
+      </div>
+      <div class="controls-section">
+        <h3 class="section-title">Map Mode</h3>
+        <div class="control-row">
+          <select id="map-mode-select" class="mode-dropdown">
+            ${mapModeOptionsHTML}
+          </select>
+        </div>
       </div>
       <div class="controls-section">
         <h3 class="section-title">Visual Mode</h3>
@@ -360,6 +452,21 @@ export class Controls extends EventEmitter {
   }
 
   /**
+   * Format map mode name for display
+   * @private
+   * @param {string} mode - Map mode name
+   * @returns {string} Formatted name
+   */
+  _formatMapModeName(mode) {
+    const modeNames = {
+      satellite: 'Satellite',
+      dark: 'Dark',
+      hybrid: 'Hybrid'
+    };
+    return modeNames[mode] || mode;
+  }
+
+  /**
    * Bind event handlers to DOM elements
    * @private
    */
@@ -378,7 +485,26 @@ export class Controls extends EventEmitter {
       });
     }
 
-    // Mode dropdown handler
+    // Borders toggle handler
+    this._bordersToggle = this.panel.querySelector('#toggle-borders');
+    if (this._bordersToggle) {
+      this._bordersToggle.addEventListener('change', (e) => {
+        this._bordersVisible = e.target.checked;
+        this.emit('bordersToggle', { visible: e.target.checked });
+      });
+    }
+
+    // Map mode dropdown handler
+    this._mapModeDropdown = this.panel.querySelector('#map-mode-select');
+    if (this._mapModeDropdown) {
+      this._mapModeDropdown.addEventListener('change', (e) => {
+        const previousMode = this._mapMode;
+        this._mapMode = e.target.value;
+        this.emit('mapModeChange', { mode: e.target.value, previousMode });
+      });
+    }
+
+    // Visual mode dropdown handler
     this._modeDropdown = this.panel.querySelector('#visual-mode-select');
     if (this._modeDropdown) {
       this._modeDropdown.addEventListener('change', (e) => {
@@ -415,12 +541,14 @@ export class Controls extends EventEmitter {
     this.container = null;
     this._toggleElements = {};
     this._modeDropdown = null;
+    this._mapModeDropdown = null;
+    this._bordersToggle = null;
     this._opacitySlider = null;
     this._events.clear();
   }
 }
 
 // Export constants for external use
-export { LAYER_TYPES, VISUAL_MODES };
+export { LAYER_TYPES, VISUAL_MODES, MAP_MODES };
 
 export default Controls;
