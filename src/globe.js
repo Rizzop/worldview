@@ -34,6 +34,7 @@ export class Globe {
 
     // Default viewer options - cinematic minimal UI
     // Hide all default Cesium UI for spy-thriller aesthetic
+    // NOTE: Do NOT pass skyAtmosphere as option - it must be configured AFTER viewer creation
     const defaultOptions = {
       animation: false,
       baseLayerPicker: false,
@@ -50,7 +51,6 @@ export class Globe {
       shouldAnimate: true,
       // Dark minimal background
       skyBox: false,
-      skyAtmosphere: true,
       contextOptions: {
         webgl: {
           alpha: false
@@ -77,6 +77,7 @@ export class Globe {
   /**
    * Configure cinematic scene settings for spy-thriller aesthetic
    * Enables day/night lighting, atmosphere glow, and hides remaining UI elements
+   * All operations wrapped in try/catch to gracefully handle version differences
    * @private
    */
   _setupCinematicScene() {
@@ -84,39 +85,79 @@ export class Globe {
     const globe = scene.globe;
 
     // Enable day/night lighting on the globe
-    globe.enableLighting = true;
+    try {
+      globe.enableLighting = true;
+    } catch (e) {
+      console.warn('Globe: Could not enable lighting:', e.message);
+    }
 
-    // Enable atmosphere glow
-    scene.skyAtmosphere.show = true;
-    scene.skyAtmosphere.brightnessShift = 0.3;
+    // Enable atmosphere glow - must check that skyAtmosphere is an object, not a boolean
+    try {
+      if (scene.skyAtmosphere && typeof scene.skyAtmosphere === 'object') {
+        scene.skyAtmosphere.show = true;
+        if ('brightnessShift' in scene.skyAtmosphere) {
+          scene.skyAtmosphere.brightnessShift = 0.3;
+        }
+      }
+    } catch (e) {
+      console.warn('Globe: Could not configure sky atmosphere:', e.message);
+    }
 
     // Dark blue/black background color
-    scene.backgroundColor = Cesium.Color.fromCssColorString('#0a0a14');
+    try {
+      scene.backgroundColor = Cesium.Color.fromCssColorString('#0a0a14');
+    } catch (e) {
+      console.warn('Globe: Could not set background color:', e.message);
+    }
 
     // Fog for depth effect
-    scene.fog.enabled = true;
-    scene.fog.density = 0.0001;
+    try {
+      if (scene.fog) {
+        scene.fog.enabled = true;
+        scene.fog.density = 0.0001;
+      }
+    } catch (e) {
+      console.warn('Globe: Could not configure fog:', e.message);
+    }
 
     // High dynamic range for better visual quality
-    scene.highDynamicRange = false;
+    try {
+      scene.highDynamicRange = false;
+    } catch (e) {
+      console.warn('Globe: Could not set HDR mode:', e.message);
+    }
 
     // Hide any remaining UI elements that might appear
-    // Hide timeline if it exists
-    if (this.viewer.timeline) {
-      this.viewer.timeline.container.style.display = 'none';
+    try {
+      // Hide timeline if it exists
+      if (this.viewer.timeline) {
+        this.viewer.timeline.container.style.display = 'none';
+      }
+    } catch (e) {
+      console.warn('Globe: Could not hide timeline:', e.message);
     }
-    // Hide animation controller if it exists
-    if (this.viewer.animation) {
-      this.viewer.animation.container.style.display = 'none';
+
+    try {
+      // Hide animation controller if it exists
+      if (this.viewer.animation) {
+        this.viewer.animation.container.style.display = 'none';
+      }
+    } catch (e) {
+      console.warn('Globe: Could not hide animation:', e.message);
     }
-    // Hide credit container
-    if (this.viewer._cesiumWidget && this.viewer._cesiumWidget._creditContainer) {
-      this.viewer._cesiumWidget._creditContainer.style.display = 'none';
-    }
-    // Alternative credit container hiding
-    const creditContainer = this.viewer.cesiumWidget?.creditContainer;
-    if (creditContainer) {
-      creditContainer.style.display = 'none';
+
+    try {
+      // Hide credit container
+      if (this.viewer._cesiumWidget && this.viewer._cesiumWidget._creditContainer) {
+        this.viewer._cesiumWidget._creditContainer.style.display = 'none';
+      }
+      // Alternative credit container hiding
+      const creditContainer = this.viewer.cesiumWidget?.creditContainer;
+      if (creditContainer) {
+        creditContainer.style.display = 'none';
+      }
+    } catch (e) {
+      console.warn('Globe: Could not hide credit container:', e.message);
     }
   }
 
