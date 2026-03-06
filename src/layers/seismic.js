@@ -13,9 +13,10 @@ const Cesium = (typeof window !== 'undefined' && window.Cesium) ||
                null;
 
 /**
- * Default USGS earthquake feed URL (all earthquakes in the past day)
+ * Default USGS earthquake feed URL (M2.5+ earthquakes in the past day)
+ * This API supports CORS — call directly, no proxy needed
  */
-const DEFAULT_USGS_URL = 'https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson';
+const DEFAULT_USGS_URL = 'https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/2.5_day.geojson';
 
 /**
  * Maximum number of seismic markers for performance
@@ -27,8 +28,8 @@ const MAX_SEISMIC_MARKERS = 200;
  * Subtle pulsing rings at earthquake locations
  */
 const CINEMATIC_SETTINGS = {
-  // Ring appearance: thin outline, pulsing animation
-  ringOpacity: 0.4,
+  // Ring appearance: semi-transparent fill (0.4 opacity), pulsing animation
+  fillOpacity: 0.4,
   ringOutlineOpacity: 0.7,
   pulseAmplitude: 0.3,
   pulsePeriod: 2.5,
@@ -210,32 +211,38 @@ export class SeismicLayer {
 
   /**
    * Calculate circle radius based on earthquake magnitude
-   * Magnitude 5 = 50km radius, Magnitude 7 = 200km radius
-   * Uses exponential scaling for visual effect
+   * M3 = 20km radius, M5 = 50km radius, M7 = 150km radius
+   * Uses linear interpolation between these reference points
    * @param {number|null} magnitude - Earthquake magnitude
    * @returns {number} Radius in meters
    * @private
    */
   _getRadiusByMagnitude(magnitude) {
     if (magnitude == null || magnitude < 0) {
-      return 25000; // Default 25km for unknown magnitude
+      return 20000; // Default 20km for unknown magnitude
     }
 
-    // Linear interpolation: mag 5 = 50km, mag 7 = 200km
-    // slope = (200 - 50) / (7 - 5) = 75 km per magnitude unit
-    // For magnitudes below 5 or above 7, we still use the formula but clamp minimum
-    const baseRadius = 50000; // 50km at mag 5
-    const slope = 75000; // 75km per magnitude unit
+    // Linear interpolation based on reference points:
+    // M3 = 20km, M5 = 50km, M7 = 150km
+    // From M3 to M5: slope = (50 - 20) / (5 - 3) = 15 km per magnitude unit
+    // From M5 to M7: slope = (150 - 50) / (7 - 5) = 50 km per magnitude unit
 
-    const radius = baseRadius + (magnitude - 5) * slope;
+    let radiusKm;
+    if (magnitude <= 5) {
+      // M3 to M5 range: 20km to 50km
+      radiusKm = 20 + (magnitude - 3) * 15;
+    } else {
+      // M5 to M7+ range: 50km to 150km+
+      radiusKm = 50 + (magnitude - 5) * 50;
+    }
 
-    // Minimum radius of 10km, maximum of 500km
-    return Math.max(10000, Math.min(500000, radius));
+    // Convert to meters, minimum 10km, maximum 300km
+    return Math.max(10000, Math.min(300000, radiusKm * 1000));
   }
 
   /**
    * Get color based on earthquake depth
-   * Shallow (<70km) = red, Intermediate (70-300km) = orange, Deep (>300km) = blue
+   * Shallow (<70km) = red, Medium (70-300km) = orange, Deep (>300km) = yellow
    * @param {number|null} depth - Depth in kilometers
    * @returns {Object} Cesium Color object
    * @private
@@ -251,11 +258,11 @@ export class SeismicLayer {
       // Shallow earthquake - red
       return Cesium.Color.RED;
     } else if (depth <= 300) {
-      // Intermediate earthquake - orange
+      // Medium depth earthquake - orange
       return Cesium.Color.ORANGE;
     } else {
-      // Deep earthquake - blue
-      return Cesium.Color.BLUE;
+      // Deep earthquake - yellow
+      return Cesium.Color.YELLOW;
     }
   }
 
@@ -343,15 +350,15 @@ export class SeismicLayer {
       // Magnitude display string
       const magStr = eq.magnitude != null ? eq.magnitude.toFixed(1) : '?';
 
-      // Cinematic earthquake ring: pulsing outline, very subtle fill
+      // Cinematic earthquake ellipse: semi-transparent fill (0.4 opacity)
       globe.addEntity(entityId, {
         name: eq.place || `M${magStr} Earthquake`,
         position: Cesium.Cartesian3.fromDegrees(eq.lon, eq.lat, 0),
         ellipse: {
           semiMajorAxis: pulsingRadius,
           semiMinorAxis: pulsingRadius,
-          // Very subtle fill - mostly transparent
-          material: color.withAlpha(CINEMATIC_SETTINGS.ringOpacity * 0.3),
+          // Semi-transparent fill with 0.4 opacity
+          material: color.withAlpha(CINEMATIC_SETTINGS.fillOpacity),
           outline: true,
           outlineColor: color.withAlpha(CINEMATIC_SETTINGS.ringOutlineOpacity),
           outlineWidth: 1.5,
@@ -397,10 +404,19 @@ export class SeismicLayer {
             const props = entity.properties;
             if (props && props.earthquakeId) {
               const earthquakeId = props.earthquakeId.getValue();
-              const info = self.getInfo(earthquakeId);
-              if (info) {
-                // Dispatch custom event with earthquake info
-                const event = new CustomEvent('earthquakeClick', { detail: info });
+              const eq = self.getEarthquakeById(earthquakeId);
+              if (eq) {
+                // Dispatch custom event with magnitude, depth, location, time
+                const eventDetail = {
+                  magnitude: eq.magnitude,
+                  depth: eq.depth,
+                  location: eq.place,
+                  time: eq.timestamp,
+                  lat: eq.lat,
+                  lon: eq.lon,
+                  id: eq.id,
+                };
+                const event = new CustomEvent('earthquakeClick', { detail: eventDetail });
                 if (typeof document !== 'undefined') {
                   document.dispatchEvent(event);
                 }
