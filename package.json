@@ -1,0 +1,31 @@
+{
+  "name": "worldview",
+  "version": "1.0.0",
+  "description": "Global satellite tracking visualization using Cesium",
+  "type": "module",
+  "main": "src/app.js",
+  "scripts": {
+    "start": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "vitest"
+  },
+  "keywords": [
+    "satellite",
+    "tracking",
+    "cesium",
+    "visualization",
+    "3d"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "cesium": "^1.112.0",
+    "satellite.js": "^5.0.0"
+  },
+  "devDependencies": {
+    "vite": "^5.0.0",
+    "vite-plugin-cesium": "^1.2.22",
+    "vitest": "^1.0.0"
+  }
+}
