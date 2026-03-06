@@ -31,11 +31,12 @@ try {
     // Fallback to minimal default config if neither exists
     config = {
       CESIUM_ION_TOKEN: '',
-      refreshRates: {
-        satellitePositionUpdate: 1000,
-        tleFetch: 3600000,
-        visibilityUpdate: 5000,
-        groundStationUpdate: 2000
+      REFRESH_RATES: {
+        satellites: 60000,
+        flights: 15000,
+        seismic: 300000,
+        traffic: 120000,
+        cctv: 60000
       },
       view: {
         defaultLatitude: 0,
@@ -113,9 +114,9 @@ export class WorldViewApp {
 
     console.log('[WorldView] Initializing application...');
 
-    // Initialize globe
+    // Initialize globe with config for Cesium Ion token
     try {
-      this.globe = new Globe(this.options.container);
+      this.globe = new Globe(this.options.container, {}, config);
       console.log('[WorldView] Globe initialized');
     } catch (error) {
       console.error('[WorldView] Failed to initialize globe:', error.message);
@@ -472,26 +473,25 @@ export class WorldViewApp {
     // Clear any existing interval
     this._stopLayerRefresh(layerName);
 
-    // Get refresh rate from config
-    const refreshRates = config?.refreshRates || {};
+    // Get refresh rate from config (uses REFRESH_RATES uppercase to match config.js)
+    const refreshRates = config?.REFRESH_RATES || {};
     let intervalMs;
 
     switch (layerName) {
       case 'satellites':
-        intervalMs = refreshRates.satellitePositionUpdate || 1000;
+        intervalMs = refreshRates.satellites || 60000;
         break;
       case 'flights':
-        intervalMs = refreshRates.visibilityUpdate || 5000;
+        intervalMs = refreshRates.flights || 15000;
         break;
       case 'seismic':
-        intervalMs = refreshRates.visibilityUpdate || 5000;
+        intervalMs = refreshRates.seismic || 300000;
         break;
       case 'traffic':
-        intervalMs = refreshRates.groundStationUpdate || 2000;
+        intervalMs = refreshRates.traffic || 120000;
         break;
       case 'cctv':
-        // CCTV doesn't need frequent refresh, check every 5 minutes
-        intervalMs = 300000;
+        intervalMs = refreshRates.cctv || 60000;
         break;
       default:
         intervalMs = 5000;
@@ -671,3 +671,30 @@ export class WorldViewApp {
 
 // Export for module usage
 export default WorldViewApp;
+
+// Initialize the application on page load
+// This is the entry point that creates and initializes the WorldViewApp
+(async function initApp() {
+  // Wait for DOM to be ready
+  if (document.readyState === 'loading') {
+    await new Promise(resolve => document.addEventListener('DOMContentLoaded', resolve));
+  }
+
+  // Create and initialize the application
+  try {
+    const app = new WorldViewApp({
+      container: 'cesiumContainer',
+      controlsContainer: 'controlsContainer'
+    });
+
+    // Initialize the app (creates globe, layers, UI)
+    await app.init();
+
+    // Expose app globally for debugging if needed
+    window.worldViewApp = app;
+
+    console.log('[WorldView] Application ready');
+  } catch (error) {
+    console.error('[WorldView] Failed to start application:', error);
+  }
+})();

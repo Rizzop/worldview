@@ -1,28 +1,13 @@
 // Globe Module - CesiumJS Viewer Wrapper
 // Provides globe rendering foundation for satellite visualization
+// Creates new Cesium.Viewer('cesiumContainer') on page load
 
 // Use Cesium from global scope (loaded via CDN in index.html)
-const Cesium = window.Cesium || globalThis.Cesium;
+// Must use window.Cesium not import from 'cesium' per task requirements
+const Cesium = window.Cesium;
 
-// Import config, falling back to example if config.js doesn't exist
-let config;
-try {
-  config = (await import('../config.js')).default;
-} catch (e) {
-  try {
-    config = (await import('../config.example.js')).default;
-  } catch (e2) {
-    // Fallback to minimal default config if neither exists
-    config = {
-      CESIUM_ION_TOKEN: '',
-      view: {
-        defaultLatitude: 0,
-        defaultLongitude: 0,
-        defaultHeight: 20000000
-      }
-    };
-  }
-}
+// Config will be set by initGlobe or Globe constructor
+let config = null;
 
 /**
  * Globe class - Wraps CesiumJS Viewer for satellite tracking visualization
@@ -32,11 +17,20 @@ export class Globe {
    * Create a new Globe instance
    * @param {string|HTMLElement} container - DOM element or ID for the viewer
    * @param {Object} options - Optional configuration overrides
+   * @param {Object} configObj - Configuration object with CESIUM_ION_TOKEN
    */
-  constructor(container, options = {}) {
+  constructor(container, options = {}, configObj = null) {
+    // Use provided config or try to get from module-level config
+    const cfg = configObj || config || {};
+
     // Set Cesium Ion access token for authentication
-    // Uses config.CESIUM_ION_TOKEN as specified in task requirements
-    Cesium.Ion.defaultAccessToken = config.CESIUM_ION_TOKEN;
+    // Uses CESIUM_ION_TOKEN from config.js as specified in task requirements
+    if (cfg.CESIUM_ION_TOKEN) {
+      Cesium.Ion.defaultAccessToken = cfg.CESIUM_ION_TOKEN;
+    }
+
+    // Store config reference for camera setup
+    config = cfg;
 
     // Default viewer options
     const defaultOptions = {
