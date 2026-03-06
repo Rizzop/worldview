@@ -26,12 +26,116 @@
             margin: 0;
             padding: 0;
         }
+        /* Search Bar Styles */
+        #searchContainer {
+            position: fixed;
+            top: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 1000;
+        }
+        #searchInput {
+            width: 300px;
+            padding: 10px 15px;
+            font-family: 'Source Code Pro', 'Consolas', monospace;
+            font-size: 14px;
+            color: #00ff00;
+            background-color: rgba(10, 10, 10, 0.9);
+            border: 1px solid #333;
+            border-radius: 4px;
+            outline: none;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+        #searchInput:focus {
+            border-color: #00ff00;
+            box-shadow: 0 0 10px rgba(0, 255, 0, 0.3);
+        }
+        #searchInput::placeholder {
+            color: #666;
+        }
+        /* HUD Container Styles */
+        #hudContainer {
+            position: fixed;
+            bottom: 10px;
+            left: 10px;
+            z-index: 1000;
+            pointer-events: none;
+        }
+        .hud-overlay {
+            background-color: rgba(10, 10, 10, 0.8);
+            border: 1px solid #333;
+            border-radius: 4px;
+            padding: 10px;
+            font-family: 'Source Code Pro', 'Consolas', monospace;
+            font-size: 12px;
+            color: #00ff00;
+            min-width: 180px;
+        }
+        .hud-section {
+            margin-bottom: 5px;
+        }
+        .hud-section:last-child {
+            margin-bottom: 0;
+        }
+        .hud-label {
+            color: #00ffff;
+            margin-right: 5px;
+        }
+        .hud-fps-value {
+            color: #ffaa00;
+        }
+        .hud-layer-count-value {
+            color: #00ff00;
+        }
+        .hud-connection-value[data-status="connected"] {
+            color: #00ff00;
+        }
+        .hud-connection-value[data-status="disconnected"] {
+            color: #ff3333;
+        }
+        .hud-connection-value[data-status="reconnecting"] {
+            color: #ffaa00;
+        }
+        .hud-freshness-list {
+            margin-top: 5px;
+            padding-top: 5px;
+            border-top: 1px solid #333;
+        }
+        .hud-freshness-item {
+            font-size: 11px;
+            color: #888;
+        }
     </style>
 </head>
 <body>
     <div id="cesiumContainer"></div>
     <div id="controlsContainer" class="controlsContainer"></div>
+    <div id="searchContainer">
+        <input type="text" id="searchInput" placeholder="Search location (e.g., New York, Tokyo)..." />
+    </div>
+    <div id="hudContainer"></div>
 
     <script type="module" src="src/app.js"></script>
+    <script type="module">
+        // Search functionality
+        const searchInput = document.getElementById('searchInput');
+        if (searchInput) {
+            searchInput.addEventListener('keypress', async (e) => {
+                if (e.key === 'Enter') {
+                    const query = searchInput.value.trim();
+                    if (query && window.worldViewApp) {
+                        console.log('[Search] Searching for:', query);
+                        const result = await window.worldViewApp.searchLocation(query);
+                        if (result) {
+                            console.log('[Search] Flying to:', result.name);
+                            searchInput.value = '';
+                        } else {
+                            console.log('[Search] No results found for:', query);
+                        }
+                    }
+                }
+            });
+        }
+    </script>
 </body>
 </html>

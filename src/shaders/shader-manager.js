@@ -1,9 +1,174 @@
-// Shader Manager - Post-Processing Pipeline
-// Manages GLSL shaders and Cesium post-processing stages
+// Shader Manager - Post-Processing Pipeline for Cesium
+// Manages visual mode effects: Night Vision (NVG), FLIR Thermal, CRT Monitor
+
+// Get Cesium from global scope
+const Cesium = (typeof window !== 'undefined' && window.Cesium) ||
+               (typeof globalThis !== 'undefined' && globalThis.Cesium) ||
+               null;
+
+/**
+ * Night Vision (NVG) shader - Green phosphor with noise grain
+ * Uses Cesium's built-in v_textureCoordinates and czm_textureCube
+ */
+const NVG_SHADER = `
+  uniform sampler2D colorTexture;
+  uniform float u_time;
+  uniform float u_intensity;
+
+  in vec2 v_textureCoordinates;
+
+  // Pseudo-random noise function
+  float random(vec2 st) {
+    return fract(sin(dot(st.xy, vec2(12.9898, 78.233))) * 43758.5453123);
+  }
+
+  void main() {
+    vec4 sceneColor = texture(colorTexture, v_textureCoordinates);
+
+    // Calculate luminance
+    float luminance = dot(sceneColor.rgb, vec3(0.299, 0.587, 0.114));
+
+    // Night vision green tint
+    vec3 nvgGreen = vec3(0.1, 1.0, 0.2);
+    vec3 nvgColor = nvgGreen * luminance;
+
+    // Add grain noise
+    float noise = random(v_textureCoordinates + vec2(u_time * 10.0, u_time * 5.0));
+    nvgColor += (noise - 0.5) * 0.1 * u_intensity;
+
+    // Scanline effect
+    float scanline = sin(v_textureCoordinates.y * 800.0 + u_time * 10.0) * 0.5 + 0.5;
+    nvgColor *= mix(1.0, scanline * 0.15 + 0.85, u_intensity * 0.5);
+
+    // Vignette
+    vec2 center = v_textureCoordinates - 0.5;
+    float dist = length(center);
+    float vig = 1.0 - smoothstep(0.3, 0.9, dist);
+    nvgColor *= mix(1.0, vig, u_intensity);
+
+    // Brightness boost
+    nvgColor *= 1.0 + 0.3 * u_intensity;
+
+    // Mix with original based on intensity
+    vec3 finalColor = mix(sceneColor.rgb, nvgColor, u_intensity);
+    finalColor = clamp(finalColor, 0.0, 1.0);
+
+    out_FragColor = vec4(finalColor, sceneColor.a);
+  }
+`;
+
+/**
+ * FLIR Thermal shader - Ironbow colormap
+ */
+const FLIR_SHADER = `
+  uniform sampler2D colorTexture;
+  uniform float u_time;
+  uniform float u_intensity;
+
+  in vec2 v_textureCoordinates;
+
+  // Ironbow colormap
+  vec3 ironbow(float t) {
+    t = clamp(t, 0.0, 1.0);
+    vec3 color;
+
+    if (t < 0.2) {
+      float s = t / 0.2;
+      color = mix(vec3(0.0, 0.0, 0.3), vec3(0.5, 0.0, 0.5), s);
+    } else if (t < 0.4) {
+      float s = (t - 0.2) / 0.2;
+      color = mix(vec3(0.5, 0.0, 0.5), vec3(0.8, 0.0, 0.0), s);
+    } else if (t < 0.6) {
+      float s = (t - 0.4) / 0.2;
+      color = mix(vec3(0.8, 0.0, 0.0), vec3(1.0, 0.5, 0.0), s);
+    } else if (t < 0.8) {
+      float s = (t - 0.6) / 0.2;
+      color = mix(vec3(1.0, 0.5, 0.0), vec3(1.0, 1.0, 0.0), s);
+    } else {
+      float s = (t - 0.8) / 0.2;
+      color = mix(vec3(1.0, 1.0, 0.0), vec3(1.0, 1.0, 1.0), s);
+    }
+    return color;
+  }
+
+  void main() {
+    vec4 sceneColor = texture(colorTexture, v_textureCoordinates);
+
+    // Calculate luminance as temperature
+    float luminance = dot(sceneColor.rgb, vec3(0.299, 0.587, 0.114));
+    float temperature = pow(luminance, 1.0 / (0.5 + u_intensity * 0.5));
+    temperature = clamp(temperature, 0.0, 1.0);
+
+    // Apply ironbow colormap
+    vec3 thermalColor = ironbow(temperature);
+
+    // Add subtle noise for sensor effect
+    float noise = fract(sin(dot(v_textureCoordinates + u_time * 0.01, vec2(12.9898, 78.233))) * 43758.5453);
+    thermalColor += (noise - 0.5) * 0.02;
+
+    // Mix with original based on intensity
+    vec3 finalColor = mix(sceneColor.rgb, thermalColor, u_intensity);
+    finalColor = clamp(finalColor, 0.0, 1.0);
+
+    out_FragColor = vec4(finalColor, sceneColor.a);
+  }
+`;
+
+/**
+ * CRT Monitor shader - Scanlines, vignette, chromatic aberration
+ */
+const CRT_SHADER = `
+  uniform sampler2D colorTexture;
+  uniform float u_time;
+  uniform float u_scanlineIntensity;
+
+  in vec2 v_textureCoordinates;
+
+  void main() {
+    vec2 uv = v_textureCoordinates;
+
+    // Barrel distortion
+    vec2 centered = uv - 0.5;
+    float dist = length(centered);
+    float factor = 1.0 + dist * dist * 0.1;
+    vec2 distortedUV = centered * factor + 0.5;
+
+    // Check bounds
+    if (distortedUV.x < 0.0 || distortedUV.x > 1.0 || distortedUV.y < 0.0 || distortedUV.y > 1.0) {
+      out_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
+      return;
+    }
+
+    // Chromatic aberration
+    vec2 direction = normalize(centered + 0.0001);
+    float aberration = 0.003 * dist;
+    float r = texture(colorTexture, distortedUV + direction * aberration).r;
+    float g = texture(colorTexture, distortedUV).g;
+    float b = texture(colorTexture, distortedUV - direction * aberration).b;
+    vec3 color = vec3(r, g, b);
+
+    // Scanlines
+    float scanline = sin(distortedUV.y * 800.0 * 3.14159) * 0.5 + 0.5;
+    scanline = pow(scanline, 1.5);
+    float flicker = 1.0 + sin(u_time * 8.0) * 0.01;
+    color *= mix(1.0, scanline, u_scanlineIntensity * 0.3) * flicker;
+
+    // Vignette
+    float vig = 1.0 - smoothstep(0.4, 0.9, dist);
+    vig = pow(vig, 0.8);
+    color *= vig;
+
+    // Boost contrast
+    color = (color - 0.5) * 1.1 + 0.5;
+    color = clamp(color, 0.0, 1.0);
+
+    out_FragColor = vec4(color, 1.0);
+  }
+`;
 
 /**
  * ShaderManager class - Manages post-processing shader effects
- * Loads GLSL shader files and creates Cesium PostProcessStage instances
+ * Creates Cesium PostProcessStage instances for visual modes
  */
 export class ShaderManager {
   /**
@@ -17,255 +182,123 @@ export class ShaderManager {
 
     this.viewer = viewer;
     this.postProcessStages = new Map();
-    this.shaderSources = new Map();
     this.activeMode = 'none';
     this._startTime = Date.now();
+
+    // Pre-create all shader stages
+    this._initializeStages();
   }
 
   /**
-   * Load GLSL shader source from file
-   * @param {string} name - Shader name (e.g., 'nvg', 'flir', 'crt')
-   * @param {string} url - URL to the GLSL file
-   * @returns {Promise<string>} Shader source code
-   */
-  async loadShader(name, url) {
-    const response = await fetch(url);
-    if (!response.ok) {
-      throw new Error(`Failed to load shader ${name}: ${response.statusText}`);
-    }
-    const source = await response.text();
-    this.shaderSources.set(name, source);
-    return source;
-  }
-
-  /**
-   * Load all standard shaders from src/shaders/
-   * @param {string} [basePath='src/shaders/'] - Base path to shader files
-   * @returns {Promise<void>}
-   */
-  async loadAllShaders(basePath = 'src/shaders/') {
-    const shaderFiles = {
-      nvg: `${basePath}nvg.glsl`,
-      flir: `${basePath}flir.glsl`,
-      crt: `${basePath}crt.glsl`
-    };
-
-    const loadPromises = Object.entries(shaderFiles).map(([name, url]) =>
-      this.loadShader(name, url)
-    );
-
-    await Promise.all(loadPromises);
-  }
-
-  /**
-   * Create a Cesium PostProcessStage from loaded shader
-   * @param {string} name - Shader name
-   * @param {Object} [uniforms={}] - Additional uniform values
-   * @returns {Cesium.PostProcessStage}
-   */
-  createStage(name, uniforms = {}) {
-    const shaderSource = this.shaderSources.get(name);
-    if (!shaderSource) {
-      throw new Error(`Shader '${name}' not loaded. Call loadShader first.`);
-    }
-
-    // Get Cesium from the viewer's scene
-    const Cesium = this.viewer.scene.constructor.prototype.constructor.__proto__;
-
-    // Default uniforms based on shader type
-    const defaultUniforms = this._getDefaultUniforms(name);
-    const mergedUniforms = { ...defaultUniforms, ...uniforms };
-
-    // Create PostProcessStage
-    const stage = new this.viewer.scene.postProcessStages.constructor.prototype.constructor(
-      // Use the scene's PostProcessStage constructor
-    );
-
-    // Access Cesium PostProcessStage through the viewer
-    const PostProcessStage = this._getPostProcessStageConstructor();
-
-    const postProcessStage = new PostProcessStage({
-      fragmentShader: shaderSource,
-      uniforms: mergedUniforms
-    });
-
-    this.postProcessStages.set(name, postProcessStage);
-    return postProcessStage;
-  }
-
-  /**
-   * Get the PostProcessStage constructor from Cesium
+   * Initialize all post-processing stages
    * @private
-   * @returns {Function} PostProcessStage constructor
    */
-  _getPostProcessStageConstructor() {
-    // In browser environment, Cesium is available globally or through import
-    if (typeof Cesium !== 'undefined' && Cesium.PostProcessStage) {
-      return Cesium.PostProcessStage;
+  _initializeStages() {
+    if (!Cesium || !Cesium.PostProcessStage) {
+      console.warn('[ShaderManager] Cesium.PostProcessStage not available');
+      return;
     }
-    // Fallback: try to get it from the viewer's scene
-    const scene = this.viewer.scene;
-    if (scene.postProcessStages && scene.postProcessStages.add) {
-      // Return a proxy constructor that works with the scene
-      return class PostProcessStageProxy {
-        constructor(options) {
-          this.fragmentShader = options.fragmentShader;
-          this.uniforms = options.uniforms || {};
-          this.enabled = true;
+
+    try {
+      // Create NVG stage
+      const nvgStage = new Cesium.PostProcessStage({
+        fragmentShader: NVG_SHADER,
+        uniforms: {
+          u_time: () => (Date.now() - this._startTime) / 1000.0,
+          u_intensity: 1.0
         }
-      };
-    }
-    throw new Error('Could not find Cesium.PostProcessStage');
-  }
+      });
+      nvgStage.enabled = false;
+      this.viewer.scene.postProcessStages.add(nvgStage);
+      this.postProcessStages.set('nvg', nvgStage);
+      console.log('[ShaderManager] NVG stage created');
 
-  /**
-   * Get default uniforms for a shader type
-   * @private
-   * @param {string} name - Shader name
-   * @returns {Object} Default uniform values
-   */
-  _getDefaultUniforms(name) {
-    const baseUniforms = {
-      u_time: () => (Date.now() - this._startTime) / 1000.0,
-      u_resolution: () => {
-        const canvas = this.viewer.scene.canvas;
-        return { x: canvas.width, y: canvas.height };
-      }
-    };
+      // Create FLIR stage
+      const flirStage = new Cesium.PostProcessStage({
+        fragmentShader: FLIR_SHADER,
+        uniforms: {
+          u_time: () => (Date.now() - this._startTime) / 1000.0,
+          u_intensity: 1.0
+        }
+      });
+      flirStage.enabled = false;
+      this.viewer.scene.postProcessStages.add(flirStage);
+      this.postProcessStages.set('flir', flirStage);
+      console.log('[ShaderManager] FLIR stage created');
 
-    switch (name) {
-      case 'nvg':
-        return {
-          ...baseUniforms,
-          u_intensity: 1.0
-        };
-      case 'flir':
-        return {
-          ...baseUniforms,
-          u_intensity: 1.0
-        };
-      case 'crt':
-        return {
-          ...baseUniforms,
+      // Create CRT stage
+      const crtStage = new Cesium.PostProcessStage({
+        fragmentShader: CRT_SHADER,
+        uniforms: {
+          u_time: () => (Date.now() - this._startTime) / 1000.0,
           u_scanlineIntensity: 0.7
-        };
-      default:
-        return baseUniforms;
+        }
+      });
+      crtStage.enabled = false;
+      this.viewer.scene.postProcessStages.add(crtStage);
+      this.postProcessStages.set('crt', crtStage);
+      console.log('[ShaderManager] CRT stage created');
+
+    } catch (error) {
+      console.error('[ShaderManager] Failed to create stages:', error);
     }
   }
 
   /**
    * Apply a shader mode to the scene
-   * Switches active post-processing stage
    * @param {string} mode - Shader mode: 'none', 'nvg', 'flir', 'crt'
    */
   applyShader(mode) {
     const validModes = ['none', 'nvg', 'flir', 'crt'];
     if (!validModes.includes(mode)) {
-      throw new Error(`Invalid shader mode: ${mode}. Valid modes: ${validModes.join(', ')}`);
-    }
-
-    // Disable all current post-process stages first
-    this._disableAllStages();
-
-    // If mode is 'none', just leave all stages disabled
-    if (mode === 'none') {
-      this.activeMode = 'none';
+      console.error(`[ShaderManager] Invalid shader mode: ${mode}`);
       return;
     }
 
-    // Enable the requested shader stage
-    let stage = this.postProcessStages.get(mode);
-
-    // If stage doesn't exist yet, create it
-    if (!stage && this.shaderSources.has(mode)) {
-      stage = this._createAndAddStage(mode);
-    }
-
-    if (stage) {
-      stage.enabled = true;
-      this.activeMode = mode;
-    } else {
-      throw new Error(`Shader '${mode}' not available. Load shaders first.`);
-    }
-  }
-
-  /**
-   * Create a stage and add it to the scene's post-process stages
-   * @private
-   * @param {string} name - Shader name
-   * @returns {Cesium.PostProcessStage}
-   */
-  _createAndAddStage(name) {
-    const shaderSource = this.shaderSources.get(name);
-    if (!shaderSource) {
-      return null;
-    }
-
-    const uniforms = this._getDefaultUniforms(name);
-
-    // Create the stage using Cesium's PostProcessStage
-    // In browser, Cesium will be available globally
-    const stage = this.viewer.scene.postProcessStages.add(
-      new (this._getPostProcessStageClass())({
-        fragmentShader: shaderSource,
-        uniforms: uniforms
-      })
-    );
-
-    this.postProcessStages.set(name, stage);
-    return stage;
-  }
-
-  /**
-   * Get the PostProcessStage class
-   * @private
-   * @returns {Function} PostProcessStage class
-   */
-  _getPostProcessStageClass() {
-    // Try global Cesium first (browser environment)
-    if (typeof Cesium !== 'undefined' && Cesium.PostProcessStage) {
-      return Cesium.PostProcessStage;
-    }
-    // For module environments, it should be imported
-    throw new Error('Cesium.PostProcessStage not available');
-  }
-
-  /**
-   * Disable all post-processing stages
-   * @private
-   */
-  _disableAllStages() {
+    // Disable all stages
     for (const [name, stage] of this.postProcessStages) {
-      if (stage && typeof stage.enabled !== 'undefined') {
+      if (stage) {
         stage.enabled = false;
       }
     }
+
+    // Enable the requested stage
+    if (mode !== 'none') {
+      const stage = this.postProcessStages.get(mode);
+      if (stage) {
+        stage.enabled = true;
+        console.log(`[ShaderManager] Enabled ${mode} mode`);
+      } else {
+        console.warn(`[ShaderManager] Stage '${mode}' not found`);
+      }
+    }
+
+    this.activeMode = mode;
   }
 
   /**
    * Get the currently active shader mode
-   * @returns {string} Current mode: 'none', 'nvg', 'flir', 'crt'
+   * @returns {string} Current mode
    */
   getActiveMode() {
     return this.activeMode;
   }
 
   /**
-   * Check if a shader is loaded
+   * Check if a shader mode is available
    * @param {string} name - Shader name
    * @returns {boolean}
    */
   hasShader(name) {
-    return this.shaderSources.has(name);
+    return this.postProcessStages.has(name);
   }
 
   /**
-   * Get list of loaded shader names
+   * Get list of available shader names
    * @returns {string[]}
    */
   getLoadedShaders() {
-    return Array.from(this.shaderSources.keys());
+    return Array.from(this.postProcessStages.keys());
   }
 
   /**
@@ -282,20 +315,17 @@ export class ShaderManager {
   }
 
   /**
-   * Destroy all stages and clean up resources
+   * Destroy all stages and clean up
    */
   destroy() {
-    // Remove all stages from the scene
     for (const [name, stage] of this.postProcessStages) {
       try {
         this.viewer.scene.postProcessStages.remove(stage);
       } catch (e) {
-        // Stage may not have been added to scene
+        // Stage may not have been added
       }
     }
-
     this.postProcessStages.clear();
-    this.shaderSources.clear();
     this.activeMode = 'none';
   }
 }

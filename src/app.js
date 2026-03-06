@@ -138,6 +138,9 @@ export class WorldViewApp {
     // Set up event listeners for entity clicks
     this._setupEntityClickHandlers();
 
+    // Enable all layers that are marked as enabled (fetch and render initial data)
+    await this._enableInitialLayers();
+
     this._initialized = true;
     console.log('[WorldView] Application initialized');
 
@@ -449,6 +452,38 @@ export class WorldViewApp {
   }
 
   /**
+   * Enable all initial layers that are marked as enabled
+   * Fetches data and renders each layer on startup
+   * @private
+   */
+  async _enableInitialLayers() {
+    console.log('[WorldView] Enabling initial layers...');
+
+    // Enable layers in parallel for faster startup
+    const enablePromises = [];
+
+    for (const layerName of Object.keys(this.layers)) {
+      if (this.layerStates[layerName] && this.layers[layerName]) {
+        console.log(`[WorldView] Enabling initial layer: ${layerName}`);
+        enablePromises.push(
+          this._enableLayer(layerName).catch(error => {
+            console.error(`[WorldView] Failed to enable ${layerName}:`, error.message);
+          })
+        );
+
+        // Register with HUD
+        if (this.hud) {
+          this.hud.registerLayer(layerName, this.layers[layerName]);
+        }
+      }
+    }
+
+    // Wait for all layers to be enabled
+    await Promise.all(enablePromises);
+    console.log('[WorldView] All initial layers enabled');
+  }
+
+  /**
    * Start refresh intervals for all enabled layers
    * @private
    */
@@ -686,7 +721,8 @@ export default WorldViewApp;
   try {
     const app = new WorldViewApp({
       container: 'cesiumContainer',
-      controlsContainer: 'controlsContainer'
+      controlsContainer: 'controlsContainer',
+      hudContainer: 'hudContainer'
     });
 
     // Initialize the app (creates globe, layers, UI)
