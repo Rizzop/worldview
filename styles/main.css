@@ -709,6 +709,283 @@ pre {
 }
 
 /* ============================================
+   Controls Panel - Layer Toggles UI
+   ============================================ */
+
+.controlsContainer {
+  position: fixed;
+  top: 10px;
+  left: 10px;
+  z-index: 1000;
+  pointer-events: auto;
+}
+
+.controls-panel {
+  background-color: rgba(10, 10, 10, 0.9);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-md);
+  min-width: 220px;
+  max-width: 280px;
+  box-shadow: var(--shadow-panel);
+  backdrop-filter: blur(10px);
+}
+
+.controls-panel:hover {
+  border-color: var(--border-accent);
+}
+
+.controls-section {
+  margin-bottom: var(--spacing-md);
+}
+
+.controls-section:last-child {
+  margin-bottom: 0;
+}
+
+.section-title {
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  margin-bottom: var(--spacing-sm);
+  padding-bottom: var(--spacing-xs);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.control-row {
+  display: flex;
+  align-items: center;
+  margin-bottom: var(--spacing-xs);
+  padding: var(--spacing-xs) 0;
+}
+
+.toggle-label {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  color: var(--text-primary);
+  transition: color var(--transition-fast);
+  width: 100%;
+}
+
+.toggle-label:hover {
+  color: var(--accent-green);
+}
+
+.toggle-label input[type="checkbox"] {
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  background-color: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.toggle-label input[type="checkbox"]:checked {
+  background-color: var(--accent-green);
+  border-color: var(--accent-green);
+  box-shadow: var(--shadow-glow-green);
+}
+
+.toggle-label input[type="checkbox"]:checked::after {
+  content: "✓";
+  display: block;
+  text-align: center;
+  color: var(--bg-primary);
+  font-size: 11px;
+  line-height: 14px;
+  font-weight: bold;
+}
+
+.toggle-text {
+  flex: 1;
+}
+
+.mode-dropdown {
+  appearance: none;
+  width: 100%;
+  padding: var(--spacing-sm);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  color: var(--text-primary);
+  background-color: var(--bg-tertiary);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2300ff00' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right var(--spacing-sm) center;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: border-color var(--transition-fast);
+}
+
+.mode-dropdown:focus {
+  outline: none;
+  border-color: var(--accent-green);
+  box-shadow: var(--shadow-glow-green);
+}
+
+.mode-dropdown option {
+  background-color: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.opacity-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.opacity-slider {
+  flex: 1;
+  height: 4px;
+  appearance: none;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.opacity-slider::-webkit-slider-thumb {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  background: var(--accent-green);
+  border-radius: 50%;
+  cursor: pointer;
+  box-shadow: var(--shadow-glow-green);
+}
+
+.opacity-slider::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  background: var(--accent-green);
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.opacity-value {
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
+  min-width: 35px;
+  text-align: right;
+}
+
+/* ============================================
+   Info Panel - Entity Details Overlay
+   ============================================ */
+
+.info-panel {
+  position: fixed;
+  top: 10px;
+  right: 10px;
+  z-index: 1001;
+  background-color: rgba(10, 10, 10, 0.95);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  min-width: 280px;
+  max-width: 360px;
+  max-height: 80vh;
+  overflow-y: auto;
+  box-shadow: var(--shadow-panel);
+  backdrop-filter: blur(10px);
+}
+
+.info-panel-header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-md);
+  border-bottom: 1px solid var(--border-color);
+  background-color: rgba(0, 255, 0, 0.05);
+}
+
+.info-panel-icon {
+  font-size: var(--font-size-lg);
+}
+
+.info-panel-title {
+  flex: 1;
+  font-size: var(--font-size-base);
+  color: var(--text-secondary);
+  margin: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.info-panel-close {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 24px;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+  transition: color var(--transition-fast);
+}
+
+.info-panel-close:hover {
+  color: var(--accent-red);
+}
+
+.info-panel-content {
+  padding: var(--spacing-md);
+}
+
+.info-panel-fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+.info-panel-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: var(--spacing-xs) 0;
+  border-bottom: 1px solid rgba(51, 51, 51, 0.5);
+}
+
+.info-panel-row:last-child {
+  border-bottom: none;
+}
+
+.info-panel-label {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  flex-shrink: 0;
+  margin-right: var(--spacing-sm);
+}
+
+.info-panel-value {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  text-align: right;
+  word-break: break-word;
+}
+
+.info-panel-value a {
+  color: var(--accent-cyan);
+}
+
+.info-panel-value a:hover {
+  color: var(--accent-green);
+  text-shadow: var(--shadow-glow-green);
+}
+
+.info-panel-mono {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+}
+
+/* ============================================
    Print Styles
    ============================================ */
 
@@ -724,6 +1001,10 @@ pre {
   }
 
   .btn, .loading, .scanning-line {
+    display: none;
+  }
+
+  .controls-panel, .info-panel {
     display: none;
   }
 }

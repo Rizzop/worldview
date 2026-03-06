@@ -234,9 +234,11 @@ export class WorldViewApp {
       console.error('[WorldView] Failed to initialize Controls:', error.message);
     }
 
-    // Initialize Info Panel
+    // Initialize Info Panel with container set to document body for overlay
     try {
-      this.infoPanel = new InfoPanel({});
+      this.infoPanel = new InfoPanel({
+        container: document.body
+      });
       console.log('[WorldView] InfoPanel initialized');
     } catch (error) {
       console.error('[WorldView] Failed to initialize InfoPanel:', error.message);
@@ -540,8 +542,8 @@ export class WorldViewApp {
           layer.updatePositions(new Date());
           break;
         case 'flights':
-          // Fetch new flight data
-          layer.removeAll(this.globe);
+          // SMOOTH UPDATE: Fetch new flight data and update in place
+          // Do NOT call removeAll - render() handles smooth updates via setValue()
           await layer.fetchAndParse();
           layer.render(this.globe);
           break;

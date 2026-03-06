@@ -43,6 +43,12 @@ const OPENSKY_FIELDS = {
 };
 
 /**
+ * Altitude scale factor for visibility
+ * Flight altitudes in meters are scaled up for better globe visualization
+ */
+const ALTITUDE_SCALE_FACTOR = 50;
+
+/**
  * FlightLayer class
  * Manages flight data fetching and parsing from OpenSky Network.
  */
@@ -67,6 +73,10 @@ export class FlightLayer {
     this.flights = [];
     this.lastFetch = null;
     this.responseTime = null;
+    // Track rendered entity IDs for smooth updates
+    this._renderedEntityIds = new Set();
+    // Flag to prevent concurrent updates
+    this._updating = false;
   }
 
   /**
@@ -361,9 +371,25 @@ export class FlightLayer {
   }
 
   /**
+   * Get scaled altitude for visualization
+   * Scales flight altitude for better visibility on the globe
+   * @param {number|null} altitude - Altitude in meters
+   * @returns {number} Scaled altitude in meters
+   * @private
+   */
+  _getScaledAltitude(altitude) {
+    if (altitude == null || altitude <= 0) {
+      return 1000; // Minimum height above surface for visibility
+    }
+    // Scale altitude for visibility (real altitudes are tiny compared to Earth)
+    return altitude * ALTITUDE_SCALE_FACTOR;
+  }
+
+  /**
    * Render flights on the globe with markers and labels
    * Military aircraft are colored red, civilian aircraft are colored blue.
    * Marker size varies by altitude (larger = higher).
+   * Uses smooth updates via setValue() instead of removing/recreating entities.
    *
    * @param {Object} globe - Globe instance with addEntity method
    * @returns {Array<string>} Array of created entity IDs
@@ -379,8 +405,15 @@ export class FlightLayer {
       return [];
     }
 
+    // Prevent concurrent updates
+    if (this._updating) {
+      return Array.from(this._renderedEntityIds);
+    }
+    this._updating = true;
+
     const entityIds = [];
     const self = this;
+    const currentFlightIds = new Set();
 
     for (const flight of this.flights) {
       // Skip flights without valid positions
@@ -388,10 +421,8 @@ export class FlightLayer {
         continue;
       }
 
-      // Skip flights on ground (optional, but cleaner visualization)
-      // Actually, let's keep them but with smaller markers
-
       const entityId = `flight-${flight.icao24}`;
+      currentFlightIds.add(entityId);
 
       // Determine if this is a military aircraft
       const military = isMilitary(flight);
@@ -408,47 +439,87 @@ export class FlightLayer {
       // Callsign for label (fallback to ICAO24 if no callsign)
       const labelText = flight.callsign || flight.icao24 || 'Unknown';
 
-      // Create flight marker entity with label
-      globe.addEntity(entityId, {
-        name: labelText,
-        position: Cesium.Cartesian3.fromDegrees(
+      // Calculate scaled altitude for visibility
+      const scaledAltitude = this._getScaledAltitude(flight.altitude);
+
+      // Check if entity already exists for smooth update
+      const existingEntity = globe.getEntity(entityId);
+
+      if (existingEntity) {
+        // SMOOTH UPDATE: Update position using setValue() instead of recreating
+        const newPosition = Cesium.Cartesian3.fromDegrees(
           flight.lon,
           flight.lat,
-          (flight.altitude || 0) // Altitude already in meters
-        ),
-        point: {
-          pixelSize: pixelSize,
-          color: markerColor,
-          outlineColor: Cesium.Color.WHITE,
-          outlineWidth: 1,
-        },
-        label: {
-          text: labelText,
-          font: '11px sans-serif',
-          fillColor: Cesium.Color.WHITE,
-          outlineColor: Cesium.Color.BLACK,
-          outlineWidth: 2,
-          style: Cesium.LabelStyle.FILL_AND_OUTLINE,
-          verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
-          pixelOffset: new Cesium.Cartesian2(0, -10),
-          distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0, 5000000),
-        },
-        properties: {
-          icao24: flight.icao24,
-          callsign: flight.callsign,
-          isMilitary: military,
-          altitude: flight.altitude,
-          type: 'flight',
-        },
-      });
+          scaledAltitude
+        );
+        existingEntity.position.setValue(newPosition);
+
+        // Update other properties if needed
+        if (existingEntity.point) {
+          existingEntity.point.pixelSize.setValue(pixelSize);
+          existingEntity.point.color.setValue(markerColor);
+        }
+        if (existingEntity.label) {
+          existingEntity.label.text.setValue(labelText);
+        }
+      } else {
+        // Create new entity for flights not yet on globe
+        globe.addEntity(entityId, {
+          name: labelText,
+          position: Cesium.Cartesian3.fromDegrees(
+            flight.lon,
+            flight.lat,
+            scaledAltitude
+          ),
+          point: {
+            pixelSize: pixelSize,
+            color: markerColor,
+            outlineColor: Cesium.Color.WHITE,
+            outlineWidth: 1,
+          },
+          label: {
+            text: labelText,
+            font: '11px sans-serif',
+            fillColor: Cesium.Color.WHITE,
+            outlineColor: Cesium.Color.BLACK,
+            outlineWidth: 2,
+            style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+            verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+            pixelOffset: new Cesium.Cartesian2(0, -10),
+            distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0, 5000000),
+          },
+          properties: {
+            icao24: flight.icao24,
+            callsign: flight.callsign,
+            isMilitary: military,
+            altitude: flight.altitude,
+            velocity: flight.velocity,
+            heading: flight.heading,
+            originCountry: flight.originCountry,
+            type: 'flight',
+          },
+        });
+        this._renderedEntityIds.add(entityId);
+      }
 
       entityIds.push(entityId);
     }
 
-    // Set up click handler on the viewer
-    if (globe.getViewer && typeof globe.getViewer === 'function') {
+    // Remove entities for flights that are no longer in the data
+    for (const oldId of this._renderedEntityIds) {
+      if (!currentFlightIds.has(oldId)) {
+        globe.removeEntity(oldId);
+        this._renderedEntityIds.delete(oldId);
+      }
+    }
+
+    // Update tracked entity IDs
+    this._renderedEntityIds = currentFlightIds;
+
+    // Set up click handler on the viewer (only once)
+    if (!this._clickHandler && globe.getViewer && typeof globe.getViewer === 'function') {
       const viewer = globe.getViewer();
-      if (viewer && viewer.screenSpaceEventHandler) {
+      if (viewer && viewer.scene) {
         // Create a new handler for picking
         const handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
 
@@ -457,14 +528,17 @@ export class FlightLayer {
           if (Cesium.defined(pickedObject) && pickedObject.id) {
             const entity = pickedObject.id;
             const props = entity.properties;
-            if (props && props.icao24) {
-              const icao24 = props.icao24.getValue();
-              const info = self.getInfo(icao24);
-              if (info) {
-                // Dispatch custom event with flight info
-                const event = new CustomEvent('flightClick', { detail: info });
-                if (typeof document !== 'undefined') {
-                  document.dispatchEvent(event);
+            if (props && props.type) {
+              const entityType = props.type.getValue ? props.type.getValue() : props.type;
+              if (entityType === 'flight' && props.icao24) {
+                const icao24 = props.icao24.getValue ? props.icao24.getValue() : props.icao24;
+                const info = self.getInfo(icao24);
+                if (info) {
+                  // Dispatch custom event with flight info
+                  const event = new CustomEvent('flightClick', { detail: info });
+                  if (typeof document !== 'undefined') {
+                    document.dispatchEvent(event);
+                  }
                 }
               }
             }
@@ -476,6 +550,7 @@ export class FlightLayer {
       }
     }
 
+    this._updating = false;
     return entityIds;
   }
 
@@ -488,9 +563,11 @@ export class FlightLayer {
       return;
     }
 
-    for (const flight of this.flights) {
-      globe.removeEntity(`flight-${flight.icao24}`);
+    // Remove all tracked entities
+    for (const entityId of this._renderedEntityIds) {
+      globe.removeEntity(entityId);
     }
+    this._renderedEntityIds.clear();
 
     // Clean up click handler
     if (this._clickHandler) {

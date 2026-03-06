@@ -251,8 +251,15 @@ export class Controls extends EventEmitter {
     }
 
     if (!this.container) {
-      return null;
+      // Create container if it doesn't exist
+      this.container = document.createElement('div');
+      this.container.id = 'controlsContainer';
+      this.container.className = 'controlsContainer';
+      document.body.appendChild(this.container);
     }
+
+    // Ensure container has proper class for styling
+    this.container.classList.add('controlsContainer');
 
     // Create panel element
     this.panel = document.createElement('div');
