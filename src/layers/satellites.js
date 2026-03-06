@@ -1,11 +1,20 @@
 /**
- * Satellite Data Layer - Fetch and Parse TLE
+ * Satellite Data Layer - Fetch, Parse, and Render TLE
  * Fetches TLE data from CelesTrak and parses into satellite objects with computed positions.
- * Data-only layer - no rendering.
+ * Renders satellites on a Cesium globe with orbit paths and click handlers.
  */
 
 import { fetchWithRetry } from '../utils/api.js';
 import { propagateTLE } from '../utils/sgp4.js';
+
+// Cesium is only available in browser environment
+let Cesium;
+try {
+  Cesium = (await import('cesium')).default || (await import('cesium'));
+} catch (e) {
+  // Cesium not available (Node.js environment) - render will be no-op
+  Cesium = null;
+}
 
 /**
  * Default TLE source URL for active satellites
@@ -167,6 +176,204 @@ export class SatelliteLayer {
    */
   get count() {
     return this.satellites.length;
+  }
+
+  /**
+   * Get satellite info by NORAD ID
+   * @param {number} satelliteId - NORAD catalog number
+   * @returns {Object|null} Satellite data object with name, noradId, position, TLE data
+   */
+  getInfo(satelliteId) {
+    const sat = this.getSatelliteById(satelliteId);
+    if (!sat) {
+      return null;
+    }
+
+    return {
+      name: sat.name,
+      noradId: sat.noradId,
+      position: sat.position,
+      line1: sat.line1,
+      line2: sat.line2,
+      lastFetch: this.lastFetch,
+    };
+  }
+
+  /**
+   * Propagate orbit path positions for a satellite
+   * @param {Object} sat - Satellite object with TLE data
+   * @param {number} minutes - Number of minutes to propagate forward
+   * @param {number} intervalMinutes - Interval between points in minutes
+   * @returns {Array<Object>} Array of positions { lat, lon, alt }
+   * @private
+   */
+  _propagateOrbitPath(sat, minutes = 90, intervalMinutes = 2) {
+    const positions = [];
+    const now = new Date();
+
+    for (let m = 0; m <= minutes; m += intervalMinutes) {
+      const futureTime = new Date(now.getTime() + m * 60 * 1000);
+      try {
+        const pos = propagateTLE(sat.line1, sat.line2, futureTime);
+        if (pos) {
+          positions.push(pos);
+        }
+      } catch (e) {
+        // Skip this point if propagation fails
+      }
+    }
+
+    return positions;
+  }
+
+  /**
+   * Render satellites on the globe with markers, labels, and orbit paths
+   * @param {Object} globe - Globe instance with addEntity method
+   * @returns {Array<string>} Array of created entity IDs
+   */
+  render(globe) {
+    // Guard against null or undefined globe
+    if (!globe || typeof globe.addEntity !== 'function') {
+      return [];
+    }
+
+    // Guard against missing Cesium (Node.js environment)
+    if (!Cesium) {
+      return [];
+    }
+
+    const entityIds = [];
+    const self = this;
+
+    for (const sat of this.satellites) {
+      // Skip satellites without valid positions
+      if (!sat.position || sat.position.lat == null || sat.position.lon == null) {
+        continue;
+      }
+
+      const satEntityId = `satellite-${sat.noradId}`;
+      const orbitEntityId = `orbit-${sat.noradId}`;
+
+      // Create satellite marker entity with label
+      const markerEntity = globe.addEntity(satEntityId, {
+        name: sat.name,
+        position: Cesium.Cartesian3.fromDegrees(
+          sat.position.lon,
+          sat.position.lat,
+          (sat.position.alt || 0) * 1000 // Convert km to meters
+        ),
+        point: {
+          pixelSize: 8,
+          color: Cesium.Color.YELLOW,
+          outlineColor: Cesium.Color.WHITE,
+          outlineWidth: 1,
+        },
+        label: {
+          text: `${sat.noradId} ${sat.name}`,
+          font: '12px sans-serif',
+          fillColor: Cesium.Color.WHITE,
+          outlineColor: Cesium.Color.BLACK,
+          outlineWidth: 2,
+          style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+          verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+          pixelOffset: new Cesium.Cartesian2(0, -12),
+          distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0, 20000000),
+        },
+        properties: {
+          noradId: sat.noradId,
+          type: 'satellite',
+        },
+      });
+
+      entityIds.push(satEntityId);
+
+      // Propagate orbit path (90 minutes forward)
+      const orbitPositions = this._propagateOrbitPath(sat, 90, 2);
+
+      if (orbitPositions.length >= 2) {
+        // Convert positions to Cartesian3 array for polyline
+        const cartesianPositions = orbitPositions.map(pos =>
+          Cesium.Cartesian3.fromDegrees(
+            pos.lon,
+            pos.lat,
+            (pos.alt || 0) * 1000 // Convert km to meters
+          )
+        );
+
+        // Create orbit path polyline entity
+        globe.addEntity(orbitEntityId, {
+          name: `${sat.name} Orbit`,
+          polyline: {
+            positions: cartesianPositions,
+            width: 1,
+            material: new Cesium.PolylineGlowMaterialProperty({
+              glowPower: 0.2,
+              color: Cesium.Color.CYAN.withAlpha(0.7),
+            }),
+          },
+          properties: {
+            noradId: sat.noradId,
+            type: 'orbit',
+          },
+        });
+
+        entityIds.push(orbitEntityId);
+      }
+    }
+
+    // Set up click handler on the viewer
+    if (globe.getViewer && typeof globe.getViewer === 'function') {
+      const viewer = globe.getViewer();
+      if (viewer && viewer.screenSpaceEventHandler) {
+        // Create a new handler for picking
+        const handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
+
+        handler.setInputAction((click) => {
+          const pickedObject = viewer.scene.pick(click.position);
+          if (Cesium.defined(pickedObject) && pickedObject.id) {
+            const entity = pickedObject.id;
+            const props = entity.properties;
+            if (props && props.noradId) {
+              const noradId = props.noradId.getValue();
+              const info = self.getInfo(noradId);
+              if (info) {
+                // Dispatch custom event with satellite info
+                const event = new CustomEvent('satelliteClick', { detail: info });
+                if (typeof document !== 'undefined') {
+                  document.dispatchEvent(event);
+                }
+              }
+            }
+          }
+        }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+
+        // Store handler reference for cleanup
+        this._clickHandler = handler;
+      }
+    }
+
+    return entityIds;
+  }
+
+  /**
+   * Remove all rendered satellite entities from the globe
+   * @param {Object} globe - Globe instance with removeEntity method
+   */
+  removeAll(globe) {
+    if (!globe || typeof globe.removeEntity !== 'function') {
+      return;
+    }
+
+    for (const sat of this.satellites) {
+      globe.removeEntity(`satellite-${sat.noradId}`);
+      globe.removeEntity(`orbit-${sat.noradId}`);
+    }
+
+    // Clean up click handler
+    if (this._clickHandler) {
+      this._clickHandler.destroy();
+      this._clickHandler = null;
+    }
   }
 }
 
