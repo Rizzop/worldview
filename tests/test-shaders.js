@@ -14,6 +14,7 @@ const __dirname = path.dirname(__filename);
 // Test configuration
 const SHADER_DIR = path.join(__dirname, '..', 'src', 'shaders');
 const NVG_SHADER_PATH = path.join(SHADER_DIR, 'nvg.glsl');
+const FLIR_SHADER_PATH = path.join(SHADER_DIR, 'flir.glsl');
 
 /**
  * Simple assertion helpers
@@ -235,6 +236,153 @@ export function run() {
     runner.test('shader uses valid GLSL float literals', () => {
         // Check that we're using proper float literals (e.g., 1.0 not 1)
         const hasFloatLiterals = /\d+\.\d+/.test(shaderContent);
+        assert(hasFloatLiterals, 'Shader should use proper float literals (e.g., 1.0)');
+    });
+
+    // ========================================================================
+    // FLIR Shader File Tests
+    // ========================================================================
+
+    console.log('\n=== FLIR Shader Tests ===\n');
+
+    let flirContent = '';
+
+    runner.test('flir.glsl file exists', () => {
+        assert(fs.existsSync(FLIR_SHADER_PATH), `Shader file not found at ${FLIR_SHADER_PATH}`);
+    });
+
+    runner.test('flir.glsl is readable', () => {
+        flirContent = fs.readFileSync(FLIR_SHADER_PATH, 'utf-8');
+        assert(flirContent.length > 0, 'Shader file is empty');
+    });
+
+    // ========================================================================
+    // FLIR Uniform Declaration Tests
+    // ========================================================================
+
+    console.log('\n=== FLIR Uniform Declarations ===\n');
+
+    runner.test('FLIR shader has u_intensity uniform declaration', () => {
+        assertMatch(flirContent, /uniform\s+float\s+u_intensity\s*;/,
+            'Missing uniform float u_intensity declaration');
+    });
+
+    runner.test('FLIR shader has u_texture uniform declaration', () => {
+        assertMatch(flirContent, /uniform\s+sampler2D\s+u_texture\s*;/,
+            'Missing uniform sampler2D u_texture declaration');
+    });
+
+    runner.test('FLIR shader has u_resolution uniform declaration', () => {
+        assertMatch(flirContent, /uniform\s+vec2\s+u_resolution\s*;/,
+            'Missing uniform vec2 u_resolution declaration');
+    });
+
+    // ========================================================================
+    // FLIR Shader Structure Tests
+    // ========================================================================
+
+    console.log('\n=== FLIR Shader Structure ===\n');
+
+    runner.test('FLIR shader has main function', () => {
+        assertMatch(flirContent, /void\s+main\s*\(\s*\)\s*\{/,
+            'Missing main() function');
+    });
+
+    runner.test('FLIR shader sets gl_FragColor', () => {
+        assertContains(flirContent, 'gl_FragColor',
+            'Shader must set gl_FragColor for output');
+    });
+
+    runner.test('FLIR shader has precision declaration', () => {
+        assertMatch(flirContent, /precision\s+(lowp|mediump|highp)\s+float\s*;/,
+            'Missing precision declaration for float');
+    });
+
+    runner.test('FLIR shader has varying for texture coordinates', () => {
+        assertMatch(flirContent, /varying\s+vec2\s+v_texCoord\s*;/,
+            'Missing varying vec2 v_texCoord declaration');
+    });
+
+    runner.test('FLIR shader uses texture2D for sampling', () => {
+        assertContains(flirContent, 'texture2D',
+            'Shader should use texture2D for sampling the input texture');
+    });
+
+    // ========================================================================
+    // FLIR Effect Implementation Tests
+    // ========================================================================
+
+    console.log('\n=== FLIR Effect Implementation ===\n');
+
+    runner.test('FLIR shader implements ironbow colormap', () => {
+        assertContains(flirContent, 'ironbow',
+            'Shader should implement ironbow colormap function');
+    });
+
+    runner.test('FLIR shader implements Sobel edge detection', () => {
+        const hasSobel = flirContent.includes('sobel') ||
+                         flirContent.includes('Sobel') ||
+                         flirContent.includes('sobelEdge');
+        assert(hasSobel, 'Shader should implement Sobel edge detection');
+    });
+
+    runner.test('FLIR shader implements luminance to temperature mapping', () => {
+        const hasLuminance = flirContent.includes('luminance') ||
+                             flirContent.includes('Luminance');
+        const hasTemperature = flirContent.includes('temperature') ||
+                               flirContent.includes('Temperature');
+        assert(hasLuminance && hasTemperature,
+            'Shader should implement luminance to temperature mapping');
+    });
+
+    runner.test('FLIR shader implements heat signature highlighting', () => {
+        const hasHeatSignature = flirContent.includes('heat') ||
+                                 flirContent.includes('Heat') ||
+                                 flirContent.includes('heatSignature');
+        assert(hasHeatSignature, 'Shader should implement heat signature highlighting');
+    });
+
+    // ========================================================================
+    // FLIR GLSL Syntax Validation
+    // ========================================================================
+
+    console.log('\n=== FLIR GLSL Syntax Validation ===\n');
+
+    runner.test('FLIR shader has balanced braces', () => {
+        const openBraces = (flirContent.match(/\{/g) || []).length;
+        const closeBraces = (flirContent.match(/\}/g) || []).length;
+        assert(openBraces === closeBraces,
+            `Unbalanced braces: ${openBraces} open, ${closeBraces} close`);
+    });
+
+    runner.test('FLIR shader has balanced parentheses', () => {
+        const openParens = (flirContent.match(/\(/g) || []).length;
+        const closeParens = (flirContent.match(/\)/g) || []).length;
+        assert(openParens === closeParens,
+            `Unbalanced parentheses: ${openParens} open, ${closeParens} close`);
+    });
+
+    runner.test('FLIR shader has no obvious syntax errors', () => {
+        const issues = [];
+
+        // Double semicolons
+        if (/;;/.test(flirContent)) {
+            issues.push('Double semicolons found');
+        }
+
+        // Unclosed comments
+        const multilineCommentOpen = (flirContent.match(/\/\*/g) || []).length;
+        const multilineCommentClose = (flirContent.match(/\*\//g) || []).length;
+        if (multilineCommentOpen !== multilineCommentClose) {
+            issues.push('Unclosed multiline comment');
+        }
+
+        assert(issues.length === 0, issues.join(', '));
+    });
+
+    runner.test('FLIR shader uses valid GLSL float literals', () => {
+        // Check that we're using proper float literals (e.g., 1.0 not 1)
+        const hasFloatLiterals = /\d+\.\d+/.test(flirContent);
         assert(hasFloatLiterals, 'Shader should use proper float literals (e.g., 1.0)');
     });
 
