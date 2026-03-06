@@ -9,10 +9,6 @@ const Cesium = window.Cesium;
 // Config will be set by initGlobe or Globe constructor
 let config = null;
 
-// Country borders GeoJSON URL - using smaller simplified version (under 500KB)
-// The full countries.geojson causes RangeError: Invalid array length
-const COUNTRIES_GEOJSON_URL = 'https://raw.githubusercontent.com/johan/world.geo.json/master/countries.geo.json';
-
 /**
  * Globe class - Wraps CesiumJS Viewer for satellite tracking visualization
  */
@@ -77,12 +73,9 @@ export class Globe {
     // Store entity references for management
     this._entities = new Map();
 
-    // Country borders data source
-    this._bordersDataSource = null;
-    this._bordersVisible = true;
-
-    // Load country borders on init
-    this._loadCountryBorders();
+    // OSM borders imagery layer (not loaded by default)
+    this._bordersLayer = null;
+    this._bordersVisible = false;
   }
 
   /**
@@ -280,46 +273,64 @@ export class Globe {
   }
 
   /**
-   * Load country borders from GeoJSON
-   * Styles borders with cyan stroke at 0.3 opacity, transparent fill
-   * Uses simplified GeoJSON to avoid RangeError with large datasets
+   * Add OSM imagery layer for country borders overlay
+   * Uses OpenStreetMap tiles with low alpha for subtle border visibility
    * @private
    */
-  async _loadCountryBorders() {
+  _addBordersLayer() {
     try {
-      console.log('[Globe] Loading country borders from simplified GeoJSON...');
-
-      // Use clampToGround: false to avoid complex terrain processing
-      // that can cause RangeError with large polygon arrays
-      this._bordersDataSource = await Cesium.GeoJsonDataSource.load(COUNTRIES_GEOJSON_URL, {
-        stroke: Cesium.Color.CYAN.withAlpha(0.3),
-        fill: Cesium.Color.TRANSPARENT,
-        strokeWidth: 1,
-        clampToGround: false
+      // Create OSM imagery provider for borders
+      const osmProvider = new Cesium.UrlTemplateImageryProvider({
+        url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+        credit: 'OpenStreetMap'
       });
 
-      this._bordersDataSource.name = 'countryBorders';
-      this.viewer.dataSources.add(this._bordersDataSource);
-      this._bordersDataSource.show = this._bordersVisible;
+      // Add as overlay layer with low alpha for subtle borders
+      this._bordersLayer = this.viewer.imageryLayers.addImageryProvider(osmProvider);
+      this._bordersLayer.alpha = 0.3;
 
-      console.log('[Globe] Country borders loaded successfully');
+      console.log('[Globe] Borders overlay layer added');
     } catch (error) {
-      // Gracefully handle border loading failures - never kill the globe
-      console.warn('[Globe] Failed to load country borders (non-fatal):', error.message);
-      this._bordersDataSource = null;
-      this._bordersVisible = false;
+      // Never let border layer crash the app - borders are nice-to-have
+      console.warn('[Globe] Failed to add borders layer (non-fatal):', error.message);
+      this._bordersLayer = null;
+    }
+  }
+
+  /**
+   * Remove OSM borders imagery layer
+   * @private
+   */
+  _removeBordersLayer() {
+    try {
+      if (this._bordersLayer) {
+        this.viewer.imageryLayers.remove(this._bordersLayer);
+        this._bordersLayer = null;
+        console.log('[Globe] Borders overlay layer removed');
+      }
+    } catch (error) {
+      // Never let border removal crash the app
+      console.warn('[Globe] Failed to remove borders layer (non-fatal):', error.message);
+      this._bordersLayer = null;
     }
   }
 
   /**
    * Toggle country borders visibility
+   * Adds/removes OSM imagery overlay layer for borders
    * @param {boolean} visible - Whether to show borders
    */
   setBordersVisible(visible) {
     try {
       this._bordersVisible = visible;
-      if (this._bordersDataSource) {
-        this._bordersDataSource.show = visible;
+      if (visible) {
+        // Add borders layer if not already present
+        if (!this._bordersLayer) {
+          this._addBordersLayer();
+        }
+      } else {
+        // Remove borders layer if present
+        this._removeBordersLayer();
       }
     } catch (error) {
       // Never let border toggle crash the globe
@@ -376,11 +387,16 @@ export class Globe {
    * Destroy the globe and clean up resources
    */
   destroy() {
+    try {
+      this._removeBordersLayer();
+    } catch (e) {
+      // Ignore cleanup errors
+    }
     if (this.viewer && !this.viewer.isDestroyed()) {
       this.viewer.destroy();
     }
     this._entities.clear();
-    this._bordersDataSource = null;
+    this._bordersLayer = null;
   }
 }
 
