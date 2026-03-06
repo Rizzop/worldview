@@ -1,6 +1,7 @@
 /**
  * News Events Layer - GDELT News API
- * Fetches geocoded news events from GDELT Project API and renders on globe.
+ * Fetches news articles from GDELT DOC API and renders on globe.
+ * Uses country geocoding since DOC API returns sourcecountry but no lat/lon.
  * Focuses on conflict and military news events.
  */
 
@@ -12,11 +13,11 @@ const Cesium = (typeof window !== 'undefined' && window.Cesium) ||
                null;
 
 /**
- * GDELT GeoJSON API endpoint for geocoded news events
+ * GDELT DOC API endpoint for news articles
  * Free API - no authentication required
  * Uses local CORS proxy to avoid browser CORS restrictions
  */
-const GDELT_API_URL = 'http://localhost:8091/gdelt/api/v2/geo/geo';
+const GDELT_API_URL = 'http://localhost:8091/gdelt/api/v2/doc/doc';
 
 /**
  * Maximum number of news markers for performance
@@ -26,8 +27,53 @@ const MAX_NEWS_MARKERS = 100;
 
 /**
  * Refresh interval for news events (5 minutes)
+ * GDELT wants max 1 request per 5 seconds, so 5 minutes is safe
  */
-const NEWS_REFRESH_INTERVAL = 5 * 60 * 1000;
+const NEWS_REFRESH_INTERVAL = 300000;
+
+/**
+ * Minimum retry delay after failure (30 seconds)
+ */
+const MIN_RETRY_DELAY = 30000;
+
+/**
+ * Country centroid coordinates lookup table
+ * Maps country names to [lat, lon] for geocoding articles
+ */
+const COUNTRY_COORDS = {
+    'United States': [39.8, -98.5],
+    'Russia': [61.5, 105.3],
+    'Ukraine': [48.4, 31.2],
+    'China': [35.9, 104.2],
+    'Iran': [32.4, 53.7],
+    'Israel': [31.0, 34.8],
+    'Syria': [35.0, 38.0],
+    'Iraq': [33.2, 43.7],
+    'Yemen': [15.6, 48.5],
+    'Lebanon': [33.9, 35.5],
+    'Turkey': [39.9, 32.9],
+    'Palestine': [31.9, 35.2],
+    'Saudi Arabia': [23.9, 45.1],
+    'Pakistan': [30.4, 69.3],
+    'India': [20.6, 79.0],
+    'North Korea': [40.3, 127.5],
+    'South Korea': [35.9, 127.8],
+    'Taiwan': [23.7, 121.0],
+    'Japan': [36.2, 138.3],
+    'United Kingdom': [55.4, -3.4],
+    'France': [46.2, 2.2],
+    'Germany': [51.2, 10.4],
+    'Poland': [51.9, 19.1],
+    'Lithuania': [55.2, 23.9],
+    'Myanmar': [19.7, 96.1],
+    'Sudan': [12.9, 30.2],
+    'Somalia': [5.2, 46.2],
+    'Libya': [26.3, 17.2],
+    'Nigeria': [9.1, 8.7],
+    'Afghanistan': [33.9, 67.7],
+    'Egypt': [26.8, 30.8],
+    'Jordan': [30.6, 36.2]
+};
 
 /**
  * Cinematic news visualization settings
@@ -43,54 +89,69 @@ const CINEMATIC_SETTINGS = {
 
 /**
  * NewsLayer class
- * Manages news event data fetching and rendering from GDELT API.
+ * Manages news event data fetching and rendering from GDELT DOC API.
  */
 export class NewsLayer {
   /**
    * Create a new NewsLayer
    * @param {Object} options - Configuration options
-   * @param {string} [options.query] - Search query (default: conflict+war+military+attack+missile+airstrike)
+   * @param {string} [options.query] - Search query (default: military conflict war)
    * @param {string} [options.timespan] - Time span for news (default: '24h')
    * @param {number} [options.timeout] - Fetch timeout in ms (default: 30000)
    * @param {number} [options.retries] - Number of fetch retries (default: 3)
    */
   constructor(options = {}) {
-    // Per task spec: query must include conflict war military attack missile airstrike
-    this.query = options.query || 'conflict war military attack missile airstrike';
-    // Per task spec: timespan 24h
+    this.query = options.query || 'military conflict war';
     this.timespan = options.timespan || '24h';
     this.timeout = options.timeout || 30000;
     this.retries = options.retries || 3;
     this.events = [];
     this.lastFetch = null;
+    this.lastFailure = null;
     this._renderedEntityIds = new Set();
     this._clickHandler = null;
   }
 
   /**
-   * Build the GDELT API URL
-   * Per task spec: http://localhost:8091/gdelt/api/v2/geo/geo?query=conflict+war+military+attack+missile+airstrike&format=GeoJSON&timespan=24h
+   * Build the GDELT DOC API URL
    * @returns {string} Full API URL
    * @private
    */
   _buildUrl() {
-    // GDELT expects space-separated terms encoded as + for OR query
-    const queryTerms = this.query.replace(/\s+/g, '+');
     const params = new URLSearchParams({
-      query: queryTerms,
-      format: 'GeoJSON',
+      query: this.query,
+      mode: 'ArtList',
+      format: 'json',
       timespan: this.timespan,
+      maxrecords: '100'
     });
     return `${GDELT_API_URL}?${params.toString()}`;
   }
 
   /**
-   * Fetch news data from GDELT API
-   * @returns {Promise<Object|null>} GeoJSON data or null on failure
+   * Check if we should retry after a failure
+   * @returns {boolean} True if enough time has passed since last failure
+   * @private
+   */
+  _canRetry() {
+    if (!this.lastFailure) return true;
+    return (Date.now() - this.lastFailure) >= MIN_RETRY_DELAY;
+  }
+
+  /**
+   * Fetch news data from GDELT DOC API
+   * @returns {Promise<Object|null>} JSON data or null on failure
    */
   async fetchData() {
+    // Respect rate limit - don't retry too soon after failure
+    if (!this._canRetry()) {
+      console.log('[News] Waiting before retry (rate limit protection)');
+      return null;
+    }
+
     try {
       const url = this._buildUrl();
+      console.log('[News] Fetching from GDELT DOC API...');
       const response = await fetchWithRetry(url, {
         timeout: this.timeout,
         retries: this.retries,
@@ -98,60 +159,51 @@ export class NewsLayer {
 
       if (!response || !response.ok) {
         console.warn('[NewsLayer] GDELT API request failed');
+        this.lastFailure = Date.now();
         return null;
       }
 
       const data = await response.json();
       this.lastFetch = new Date();
+      this.lastFailure = null;
       return data;
     } catch (error) {
       console.warn('[NewsLayer] Failed to fetch GDELT data:', error.message);
+      this.lastFailure = Date.now();
       return null;
     }
   }
 
   /**
-   * Parse GeoJSON response into news event objects
-   * @param {Object} geojson - GeoJSON response from GDELT
-   * @returns {Array<Object>} Array of news event objects
+   * Parse DOC API response into news event objects with geocoding
+   * @param {Object} response - JSON response from GDELT DOC API
+   * @returns {Array<Object>} Array of news event objects with coordinates
    */
-  parseResponse(geojson) {
-    if (!geojson || !geojson.features || !Array.isArray(geojson.features)) {
-      return [];
-    }
-
+  parseResponse(response) {
+    const articles = response.articles || [];
     const events = [];
 
-    for (const feature of geojson.features) {
-      if (!feature.geometry || !feature.properties) {
+    for (const article of articles) {
+      const coords = COUNTRY_COORDS[article.sourcecountry];
+      if (!coords) {
+        // Skip articles from unknown countries
         continue;
       }
 
-      const coords = feature.geometry.coordinates;
-      if (!Array.isArray(coords) || coords.length < 2) {
-        continue;
-      }
-
-      const lon = coords[0];
-      const lat = coords[1];
-
-      // Skip invalid coordinates
-      if (typeof lon !== 'number' || typeof lat !== 'number') {
-        continue;
-      }
-
-      const props = feature.properties;
+      // Add small random offset so articles from same country don't stack
+      const lat = coords[0] + (Math.random() - 0.5) * 2;
+      const lon = coords[1] + (Math.random() - 0.5) * 2;
 
       events.push({
-        id: props.urlpubtimeserial || `news-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-        headline: props.name || props.title || 'News Event',
-        source: props.domain || props.source || 'Unknown Source',
-        url: props.url || props.shareimage || null,
-        timestamp: props.seendate ? new Date(props.seendate) : new Date(),
+        id: `news-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        headline: article.title || 'News Event',
+        source: article.domain || 'Unknown Source',
+        url: article.url || null,
+        timestamp: article.seendate ? new Date(article.seendate) : new Date(),
         lat,
         lon,
-        imageUrl: props.shareimage || null,
-        tone: props.tone || 0,
+        country: article.sourcecountry,
+        language: article.language,
         type: 'news',
       });
     }
@@ -162,16 +214,15 @@ export class NewsLayer {
 
   /**
    * Fetch and parse news data in one step
-   * Per task spec: console.log('[News] Fetched N conflict events, rendering...')
    * @returns {Promise<Array<Object>>} Array of news event objects
    */
   async fetchAndParse() {
-    const geojson = await this.fetchData();
-    if (!geojson) {
+    const data = await this.fetchData();
+    if (!data) {
       console.log('[News] No data received from GDELT');
       return [];
     }
-    const events = this.parseResponse(geojson);
+    const events = this.parseResponse(data);
     console.log(`[News] Fetched ${events.length} conflict events, rendering...`);
     return events;
   }
@@ -292,6 +343,8 @@ export class NewsLayer {
             pixelOffset: new Cesium.Cartesian2(0, -12),
             distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0, 3000000),
             disableDepthTestDistance: Number.POSITIVE_INFINITY, // Always visible
+            showBackground: true,
+            backgroundColor: Cesium.Color.BLACK.withAlpha(0.6),
             show: true,
           },
           properties: {
@@ -300,6 +353,7 @@ export class NewsLayer {
             source: event.source,
             url: event.url,
             timestamp: event.timestamp,
+            country: event.country,
             type: 'news',
           },
         });
@@ -379,4 +433,4 @@ export class NewsLayer {
   }
 }
 
-export { GDELT_API_URL, NEWS_REFRESH_INTERVAL };
+export { GDELT_API_URL, NEWS_REFRESH_INTERVAL, COUNTRY_COORDS };
