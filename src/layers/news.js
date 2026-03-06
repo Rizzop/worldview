@@ -21,9 +21,9 @@ const GDELT_API_URL = 'http://localhost:8091/gdelt/api/v2/doc/doc';
 
 /**
  * Maximum number of news markers for performance
- * Per task spec: cap at 100 events
+ * Increased to 250 for better global coverage
  */
-const MAX_NEWS_MARKERS = 100;
+const MAX_NEWS_MARKERS = 250;
 
 /**
  * Refresh interval for news events (5 minutes)
@@ -127,7 +127,8 @@ export class NewsLayer {
    * @param {number} [options.retries] - Number of fetch retries (default: 3)
    */
   constructor(options = {}) {
-    this.query = options.query || 'military conflict war';
+    // Expanded query with English-only filter for maximum global coverage
+    this.query = options.query || 'military conflict war airstrike missile attack bombing troops invasion sourcelang:english';
     this.timespan = options.timespan || '24h';
     this.timeout = options.timeout || 30000;
     this.retries = options.retries || 3;
@@ -149,7 +150,7 @@ export class NewsLayer {
       mode: 'ArtList',
       format: 'json',
       timespan: this.timespan,
-      maxrecords: '100'
+      maxrecords: '250'
     });
     return `${GDELT_API_URL}?${params.toString()}`;
   }
@@ -202,12 +203,15 @@ export class NewsLayer {
 
   /**
    * Parse DOC API response into news event objects with geocoding
+   * Includes deduplication: same country + first 30 chars of headline = skip
    * @param {Object} response - JSON response from GDELT DOC API
    * @returns {Array<Object>} Array of news event objects with coordinates
    */
   parseResponse(response) {
     const articles = response.articles || [];
     const events = [];
+    // Track seen country+headline prefix combinations for deduplication
+    const seenKeys = new Set();
 
     for (const article of articles) {
       const coords = COUNTRY_COORDS[article.sourcecountry];
@@ -216,13 +220,22 @@ export class NewsLayer {
         continue;
       }
 
-      // Add small random offset so articles from same country don't stack
-      const lat = coords[0] + (Math.random() - 0.5) * 2;
-      const lon = coords[1] + (Math.random() - 0.5) * 2;
+      // Deduplication: skip if same country + similar headline (first 30 chars)
+      const headline = article.title || 'News Event';
+      const headlinePrefix = headline.substring(0, 30).toLowerCase();
+      const dedupeKey = `${article.sourcecountry}:${headlinePrefix}`;
+      if (seenKeys.has(dedupeKey)) {
+        continue;
+      }
+      seenKeys.add(dedupeKey);
+
+      // Add random offset of ±3 degrees so articles spread visibly across country
+      const lat = coords[0] + (Math.random() - 0.5) * 6;
+      const lon = coords[1] + (Math.random() - 0.5) * 6;
 
       events.push({
         id: `news-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-        headline: article.title || 'News Event',
+        headline: headline,
         source: article.domain || 'Unknown Source',
         url: article.url || null,
         timestamp: article.seendate ? parseGdeltDate(article.seendate) : new Date(),
