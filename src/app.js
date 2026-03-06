@@ -173,11 +173,13 @@ export class WorldViewApp {
       this.layerStates.satellites = false;
     }
 
-    // Initialize Flight Layer
+    // Initialize Flight Layer with OpenSky credentials from config
     try {
       this.layers.flights = new FlightLayer({
         timeout: 30000,
-        retries: 3
+        retries: 3,
+        username: config.OPENSKY_USERNAME || null,
+        password: config.OPENSKY_PASSWORD || null
       });
       console.log('[WorldView] FlightLayer initialized');
     } catch (error) {

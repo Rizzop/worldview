@@ -138,7 +138,8 @@ export class FlightLayer {
 
     // Add basic auth header if credentials are provided
     if (this.username && this.password) {
-      const credentials = Buffer.from(`${this.username}:${this.password}`).toString('base64');
+      // Use btoa() for browser-compatible Base64 encoding
+      const credentials = btoa(`${this.username}:${this.password}`);
       options.headers = {
         'Authorization': `Basic ${credentials}`,
       };
