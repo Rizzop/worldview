@@ -1,0 +1,823 @@
+/* ============================================
+   WORLDVIEW - HUD Overlay Styling
+   Heads-Up Display for Intelligence Interface
+   ============================================ */
+
+/* ============================================
+   HUD Container & Structure
+   ============================================ */
+
+.hud-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+  z-index: 1000;
+  font-family: 'Source Code Pro', 'Consolas', 'Monaco', 'Courier New', monospace;
+}
+
+.hud-overlay * {
+  pointer-events: auto;
+}
+
+/* ============================================
+   HUD Corner Panels
+   ============================================ */
+
+.hud-panel {
+  position: absolute;
+  background-color: rgba(26, 26, 26, 0.85);
+  border: 1px solid #333333;
+  padding: 12px 16px;
+  min-width: 180px;
+  max-width: 320px;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+/* Corner brackets decoration */
+.hud-panel::before,
+.hud-panel::after {
+  content: '';
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  border-color: #00ff00;
+  border-style: solid;
+}
+
+.hud-panel::before {
+  top: -1px;
+  left: -1px;
+  border-width: 2px 0 0 2px;
+}
+
+.hud-panel::after {
+  bottom: -1px;
+  right: -1px;
+  border-width: 0 2px 2px 0;
+}
+
+/* Panel Positions */
+.hud-panel--top-left {
+  top: 16px;
+  left: 16px;
+}
+
+.hud-panel--top-right {
+  top: 16px;
+  right: 16px;
+}
+
+.hud-panel--bottom-left {
+  bottom: 16px;
+  left: 16px;
+}
+
+.hud-panel--bottom-right {
+  bottom: 16px;
+  right: 16px;
+}
+
+.hud-panel--top-center {
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.hud-panel--bottom-center {
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+/* ============================================
+   HUD Header / Title Bar
+   ============================================ */
+
+.hud-header {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 20px;
+  background: linear-gradient(180deg, rgba(26, 26, 26, 0.95) 0%, rgba(26, 26, 26, 0.7) 100%);
+  border-bottom: 1px solid #333333;
+}
+
+.hud-logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.hud-logo-icon {
+  width: 28px;
+  height: 28px;
+  border: 2px solid #00ff00;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #00ff00;
+  font-size: 14px;
+  font-weight: bold;
+}
+
+.hud-logo-text {
+  font-size: 14px;
+  font-weight: 600;
+  color: #00ffff;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+}
+
+.hud-status {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+/* ============================================
+   HUD Data Display
+   ============================================ */
+
+.hud-data-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 0;
+  border-bottom: 1px solid rgba(51, 51, 51, 0.5);
+}
+
+.hud-data-row:last-child {
+  border-bottom: none;
+}
+
+.hud-data-label {
+  font-size: 10px;
+  color: #888888;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.hud-data-value {
+  font-size: 13px;
+  color: #00ff00;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.hud-data-value--cyan {
+  color: #00ffff;
+}
+
+.hud-data-value--amber {
+  color: #ffaa00;
+}
+
+.hud-data-value--highlight {
+  text-shadow: 0 0 8px rgba(0, 255, 0, 0.5);
+}
+
+/* ============================================
+   Coordinates Display
+   ============================================ */
+
+.hud-coordinates {
+  font-size: 12px;
+  color: #00ffff;
+  letter-spacing: 0.05em;
+  font-variant-numeric: tabular-nums;
+}
+
+.hud-coordinates-group {
+  display: flex;
+  gap: 16px;
+}
+
+.hud-coord {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.hud-coord-label {
+  font-size: 10px;
+  color: #888888;
+}
+
+.hud-coord-value {
+  color: #00ff00;
+  font-weight: 500;
+}
+
+/* ============================================
+   HUD Controls Panel
+   ============================================ */
+
+.hud-controls {
+  position: absolute;
+  right: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.hud-control-btn {
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: rgba(26, 26, 26, 0.85);
+  border: 1px solid #333333;
+  color: #00ff00;
+  font-size: 18px;
+  cursor: pointer;
+  transition: all 150ms ease;
+}
+
+.hud-control-btn:hover {
+  background-color: rgba(0, 255, 0, 0.1);
+  border-color: #00ff00;
+  box-shadow: 0 0 10px rgba(0, 255, 0, 0.3);
+}
+
+.hud-control-btn:active {
+  transform: scale(0.95);
+}
+
+.hud-control-btn--active {
+  background-color: rgba(0, 255, 0, 0.2);
+  border-color: #00ff00;
+}
+
+/* ============================================
+   HUD Info Panel (Left Side)
+   ============================================ */
+
+.hud-info-panel {
+  position: absolute;
+  left: 16px;
+  top: 64px;
+  width: 280px;
+  max-height: calc(100vh - 128px);
+  overflow-y: auto;
+  background-color: rgba(26, 26, 26, 0.9);
+  border: 1px solid #333333;
+}
+
+.hud-info-header {
+  padding: 12px 16px;
+  border-bottom: 1px solid #333333;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.hud-info-title {
+  font-size: 11px;
+  color: #00ffff;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  font-weight: 600;
+}
+
+.hud-info-close {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid transparent;
+  color: #888888;
+  cursor: pointer;
+  font-size: 16px;
+  transition: all 150ms ease;
+}
+
+.hud-info-close:hover {
+  color: #ff3333;
+  border-color: #ff3333;
+}
+
+.hud-info-content {
+  padding: 16px;
+}
+
+/* ============================================
+   Crosshair / Reticle
+   ============================================ */
+
+.hud-crosshair {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.hud-crosshair-inner {
+  width: 40px;
+  height: 40px;
+  position: relative;
+}
+
+.hud-crosshair-line {
+  position: absolute;
+  background-color: rgba(0, 255, 0, 0.6);
+}
+
+.hud-crosshair-line--h {
+  width: 12px;
+  height: 1px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.hud-crosshair-line--h-left {
+  left: 0;
+}
+
+.hud-crosshair-line--h-right {
+  right: 0;
+}
+
+.hud-crosshair-line--v {
+  width: 1px;
+  height: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.hud-crosshair-line--v-top {
+  top: 0;
+}
+
+.hud-crosshair-line--v-bottom {
+  bottom: 0;
+}
+
+.hud-crosshair-center {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 4px;
+  height: 4px;
+  border: 1px solid #00ff00;
+  border-radius: 50%;
+}
+
+/* ============================================
+   HUD Compass
+   ============================================ */
+
+.hud-compass {
+  position: absolute;
+  bottom: 80px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 200px;
+  height: 32px;
+  background-color: rgba(26, 26, 26, 0.85);
+  border: 1px solid #333333;
+  overflow: hidden;
+}
+
+.hud-compass-track {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  white-space: nowrap;
+  font-size: 10px;
+  color: #888888;
+  letter-spacing: 0.2em;
+}
+
+.hud-compass-marker {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 2px;
+  height: 100%;
+  background-color: #00ff00;
+  box-shadow: 0 0 8px rgba(0, 255, 0, 0.5);
+}
+
+.hud-compass-direction {
+  color: #00ffff;
+  font-weight: 600;
+}
+
+/* ============================================
+   HUD Altitude / Zoom Indicator
+   ============================================ */
+
+.hud-altitude {
+  position: absolute;
+  right: 80px;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 200px;
+  width: 40px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.hud-altitude-bar {
+  flex: 1;
+  width: 4px;
+  background-color: #333333;
+  position: relative;
+  border-radius: 2px;
+}
+
+.hud-altitude-fill {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: linear-gradient(180deg, #00ff00 0%, #00ffff 100%);
+  border-radius: 2px;
+  transition: height 200ms ease;
+}
+
+.hud-altitude-value {
+  margin-top: 8px;
+  font-size: 10px;
+  color: #00ff00;
+  text-align: center;
+}
+
+.hud-altitude-label {
+  font-size: 9px;
+  color: #888888;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+/* ============================================
+   HUD Notifications / Alerts
+   ============================================ */
+
+.hud-notifications {
+  position: absolute;
+  top: 64px;
+  right: 16px;
+  width: 300px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.hud-notification {
+  padding: 12px 16px;
+  background-color: rgba(26, 26, 26, 0.95);
+  border: 1px solid #333333;
+  border-left: 3px solid #00ff00;
+  animation: slideIn 300ms ease;
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateX(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.hud-notification--warning {
+  border-left-color: #ffaa00;
+}
+
+.hud-notification--error {
+  border-left-color: #ff3333;
+}
+
+.hud-notification-title {
+  font-size: 11px;
+  color: #00ffff;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  margin-bottom: 4px;
+}
+
+.hud-notification-message {
+  font-size: 12px;
+  color: #00ff00;
+}
+
+.hud-notification-time {
+  font-size: 10px;
+  color: #888888;
+  margin-top: 8px;
+}
+
+/* ============================================
+   HUD Search Bar
+   ============================================ */
+
+.hud-search {
+  position: absolute;
+  top: 64px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 400px;
+  max-width: calc(100vw - 32px);
+}
+
+.hud-search-input {
+  width: 100%;
+  padding: 12px 16px;
+  padding-left: 40px;
+  font-family: 'Source Code Pro', 'Consolas', 'Monaco', monospace;
+  font-size: 14px;
+  color: #00ff00;
+  background-color: rgba(26, 26, 26, 0.95);
+  border: 1px solid #333333;
+  transition: all 150ms ease;
+}
+
+.hud-search-input:focus {
+  outline: none;
+  border-color: #00ff00;
+  box-shadow: 0 0 10px rgba(0, 255, 0, 0.2);
+}
+
+.hud-search-input::placeholder {
+  color: #888888;
+}
+
+.hud-search-icon {
+  position: absolute;
+  left: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #00ff00;
+  font-size: 14px;
+}
+
+.hud-search-results {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin-top: 4px;
+  background-color: rgba(26, 26, 26, 0.98);
+  border: 1px solid #333333;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.hud-search-result {
+  padding: 10px 16px;
+  cursor: pointer;
+  border-bottom: 1px solid rgba(51, 51, 51, 0.5);
+  transition: background-color 150ms ease;
+}
+
+.hud-search-result:hover {
+  background-color: rgba(0, 255, 0, 0.1);
+}
+
+.hud-search-result:last-child {
+  border-bottom: none;
+}
+
+.hud-search-result-name {
+  font-size: 13px;
+  color: #00ff00;
+}
+
+.hud-search-result-type {
+  font-size: 10px;
+  color: #888888;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* ============================================
+   HUD Timeline / Activity Log
+   ============================================ */
+
+.hud-timeline {
+  position: absolute;
+  bottom: 16px;
+  left: 16px;
+  right: 16px;
+  height: 60px;
+  background-color: rgba(26, 26, 26, 0.85);
+  border: 1px solid #333333;
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+}
+
+.hud-timeline-track {
+  flex: 1;
+  height: 4px;
+  background-color: #333333;
+  border-radius: 2px;
+  position: relative;
+}
+
+.hud-timeline-progress {
+  height: 100%;
+  background: linear-gradient(90deg, #00ffff 0%, #00ff00 100%);
+  border-radius: 2px;
+}
+
+.hud-timeline-marker {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 12px;
+  height: 12px;
+  background-color: #00ff00;
+  border-radius: 50%;
+  cursor: pointer;
+  box-shadow: 0 0 8px rgba(0, 255, 0, 0.5);
+}
+
+/* ============================================
+   HUD Grid Overlay
+   ============================================ */
+
+.hud-grid {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(0, 255, 0, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 255, 0, 0.03) 1px, transparent 1px);
+  background-size: 50px 50px;
+}
+
+/* ============================================
+   Responsive Design
+   ============================================ */
+
+@media (max-width: 767px) {
+  .hud-panel {
+    min-width: 140px;
+    max-width: 200px;
+    padding: 8px 12px;
+  }
+
+  .hud-panel--top-left,
+  .hud-panel--top-right,
+  .hud-panel--bottom-left,
+  .hud-panel--bottom-right {
+    position: relative;
+    top: auto;
+    left: auto;
+    right: auto;
+    bottom: auto;
+  }
+
+  .hud-header {
+    height: 40px;
+    padding: 0 12px;
+  }
+
+  .hud-logo-text {
+    font-size: 12px;
+  }
+
+  .hud-controls {
+    right: 8px;
+    gap: 4px;
+  }
+
+  .hud-control-btn {
+    width: 36px;
+    height: 36px;
+    font-size: 14px;
+  }
+
+  .hud-info-panel {
+    left: 8px;
+    right: 8px;
+    width: auto;
+    top: auto;
+    bottom: 8px;
+    max-height: 40vh;
+  }
+
+  .hud-search {
+    top: 56px;
+    width: calc(100vw - 16px);
+  }
+
+  .hud-search-input {
+    padding: 10px 12px;
+    padding-left: 36px;
+    font-size: 13px;
+  }
+
+  .hud-notifications {
+    width: calc(100vw - 16px);
+    right: 8px;
+    left: 8px;
+  }
+
+  .hud-compass {
+    width: 160px;
+    bottom: 60px;
+  }
+
+  .hud-altitude {
+    display: none;
+  }
+
+  .hud-timeline {
+    height: 48px;
+    left: 8px;
+    right: 8px;
+    bottom: 8px;
+  }
+
+  .hud-crosshair {
+    display: none;
+  }
+}
+
+/* Tablet adjustments */
+@media (min-width: 768px) and (max-width: 1023px) {
+  .hud-info-panel {
+    width: 240px;
+  }
+
+  .hud-search {
+    width: 350px;
+  }
+}
+
+/* ============================================
+   Dark Mode Overrides (for system preference)
+   ============================================ */
+
+@media (prefers-color-scheme: dark) {
+  .hud-overlay {
+    /* Already dark by default, no changes needed */
+  }
+}
+
+/* ============================================
+   Reduced Motion Support
+   ============================================ */
+
+@media (prefers-reduced-motion: reduce) {
+  .hud-notification {
+    animation: none;
+  }
+
+  .hud-altitude-fill {
+    transition: none;
+  }
+
+  .hud-control-btn {
+    transition: none;
+  }
+
+  .hud-search-input {
+    transition: none;
+  }
+}
+
+/* ============================================
+   High Contrast Mode Support
+   ============================================ */
+
+@media (prefers-contrast: high) {
+  .hud-panel {
+    border-width: 2px;
+  }
+
+  .hud-data-value {
+    font-weight: 700;
+  }
+
+  .hud-control-btn {
+    border-width: 2px;
+  }
+}
