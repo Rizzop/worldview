@@ -15,6 +15,7 @@ const __dirname = path.dirname(__filename);
 const SHADER_DIR = path.join(__dirname, '..', 'src', 'shaders');
 const NVG_SHADER_PATH = path.join(SHADER_DIR, 'nvg.glsl');
 const FLIR_SHADER_PATH = path.join(SHADER_DIR, 'flir.glsl');
+const CRT_SHADER_PATH = path.join(SHADER_DIR, 'crt.glsl');
 
 /**
  * Simple assertion helpers
@@ -383,6 +384,162 @@ export function run() {
     runner.test('FLIR shader uses valid GLSL float literals', () => {
         // Check that we're using proper float literals (e.g., 1.0 not 1)
         const hasFloatLiterals = /\d+\.\d+/.test(flirContent);
+        assert(hasFloatLiterals, 'Shader should use proper float literals (e.g., 1.0)');
+    });
+
+    // ========================================================================
+    // CRT Shader File Tests
+    // ========================================================================
+
+    console.log('\n=== CRT Shader Tests ===\n');
+
+    let crtContent = '';
+
+    runner.test('crt.glsl file exists', () => {
+        assert(fs.existsSync(CRT_SHADER_PATH), `Shader file not found at ${CRT_SHADER_PATH}`);
+    });
+
+    runner.test('crt.glsl is readable', () => {
+        crtContent = fs.readFileSync(CRT_SHADER_PATH, 'utf-8');
+        assert(crtContent.length > 0, 'Shader file is empty');
+    });
+
+    // ========================================================================
+    // CRT Uniform Declaration Tests
+    // ========================================================================
+
+    console.log('\n=== CRT Uniform Declarations ===\n');
+
+    runner.test('CRT shader has u_scanlineIntensity uniform declaration', () => {
+        assertMatch(crtContent, /uniform\s+float\s+u_scanlineIntensity\s*;/,
+            'Missing uniform float u_scanlineIntensity declaration');
+    });
+
+    runner.test('CRT shader has u_time uniform declaration', () => {
+        assertMatch(crtContent, /uniform\s+float\s+u_time\s*;/,
+            'Missing uniform float u_time declaration');
+    });
+
+    runner.test('CRT shader has u_texture uniform declaration', () => {
+        assertMatch(crtContent, /uniform\s+sampler2D\s+u_texture\s*;/,
+            'Missing uniform sampler2D u_texture declaration');
+    });
+
+    runner.test('CRT shader has u_resolution uniform declaration', () => {
+        assertMatch(crtContent, /uniform\s+vec2\s+u_resolution\s*;/,
+            'Missing uniform vec2 u_resolution declaration');
+    });
+
+    // ========================================================================
+    // CRT Shader Structure Tests
+    // ========================================================================
+
+    console.log('\n=== CRT Shader Structure ===\n');
+
+    runner.test('CRT shader has main function', () => {
+        assertMatch(crtContent, /void\s+main\s*\(\s*\)\s*\{/,
+            'Missing main() function');
+    });
+
+    runner.test('CRT shader sets gl_FragColor', () => {
+        assertContains(crtContent, 'gl_FragColor',
+            'Shader must set gl_FragColor for output');
+    });
+
+    runner.test('CRT shader has precision declaration', () => {
+        assertMatch(crtContent, /precision\s+(lowp|mediump|highp)\s+float\s*;/,
+            'Missing precision declaration for float');
+    });
+
+    runner.test('CRT shader has varying for texture coordinates', () => {
+        assertMatch(crtContent, /varying\s+vec2\s+v_texCoord\s*;/,
+            'Missing varying vec2 v_texCoord declaration');
+    });
+
+    runner.test('CRT shader uses texture2D for sampling', () => {
+        assertContains(crtContent, 'texture2D',
+            'Shader should use texture2D for sampling the input texture');
+    });
+
+    // ========================================================================
+    // CRT Effect Implementation Tests
+    // ========================================================================
+
+    console.log('\n=== CRT Effect Implementation ===\n');
+
+    runner.test('CRT shader implements scanline effect', () => {
+        assertContains(crtContent, 'scanline',
+            'Shader should implement horizontal scanline effect');
+    });
+
+    runner.test('CRT shader implements vignette effect', () => {
+        assertContains(crtContent, 'vignette',
+            'Shader should implement radial vignette darkening');
+    });
+
+    runner.test('CRT shader implements chromatic aberration', () => {
+        const hasChromatic = crtContent.includes('chromatic') ||
+                             crtContent.includes('Chromatic') ||
+                             crtContent.includes('aberration') ||
+                             crtContent.includes('Aberration');
+        assert(hasChromatic, 'Shader should implement chromatic aberration (RGB channel offset)');
+    });
+
+    runner.test('CRT shader implements barrel distortion', () => {
+        const hasBarrel = crtContent.includes('barrel') ||
+                          crtContent.includes('Barrel') ||
+                          crtContent.includes('distortion') ||
+                          crtContent.includes('Distortion');
+        assert(hasBarrel, 'Shader should implement barrel distortion (pincushion effect)');
+    });
+
+    runner.test('CRT shader implements flicker effect', () => {
+        const hasFlicker = crtContent.includes('flicker') ||
+                           crtContent.includes('Flicker');
+        assert(hasFlicker, 'Shader should implement subtle flicker animation');
+    });
+
+    // ========================================================================
+    // CRT GLSL Syntax Validation
+    // ========================================================================
+
+    console.log('\n=== CRT GLSL Syntax Validation ===\n');
+
+    runner.test('CRT shader has balanced braces', () => {
+        const openBraces = (crtContent.match(/\{/g) || []).length;
+        const closeBraces = (crtContent.match(/\}/g) || []).length;
+        assert(openBraces === closeBraces,
+            `Unbalanced braces: ${openBraces} open, ${closeBraces} close`);
+    });
+
+    runner.test('CRT shader has balanced parentheses', () => {
+        const openParens = (crtContent.match(/\(/g) || []).length;
+        const closeParens = (crtContent.match(/\)/g) || []).length;
+        assert(openParens === closeParens,
+            `Unbalanced parentheses: ${openParens} open, ${closeParens} close`);
+    });
+
+    runner.test('CRT shader has no obvious syntax errors', () => {
+        const issues = [];
+
+        // Double semicolons
+        if (/;;/.test(crtContent)) {
+            issues.push('Double semicolons found');
+        }
+
+        // Unclosed comments
+        const multilineCommentOpen = (crtContent.match(/\/\*/g) || []).length;
+        const multilineCommentClose = (crtContent.match(/\*\//g) || []).length;
+        if (multilineCommentOpen !== multilineCommentClose) {
+            issues.push('Unclosed multiline comment');
+        }
+
+        assert(issues.length === 0, issues.join(', '));
+    });
+
+    runner.test('CRT shader uses valid GLSL float literals', () => {
+        // Check that we're using proper float literals (e.g., 1.0 not 1)
+        const hasFloatLiterals = /\d+\.\d+/.test(crtContent);
         assert(hasFloatLiterals, 'Shader should use proper float literals (e.g., 1.0)');
     });
 
