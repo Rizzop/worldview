@@ -14,13 +14,14 @@ const Cesium = (typeof window !== 'undefined' && window.Cesium) ||
 /**
  * GDELT GeoJSON API endpoint for geocoded news events
  * Free API - no authentication required
+ * Uses local CORS proxy to avoid browser CORS restrictions
  */
-const GDELT_API_URL = 'https://api.gdeltproject.org/api/v2/geo/geo';
+const GDELT_API_URL = 'http://localhost:8091/gdelt/api/v2/geo/geo';
 
 /**
  * Maximum number of news markers for performance
  */
-const MAX_NEWS_MARKERS = 100;
+const MAX_NEWS_MARKERS = 50;
 
 /**
  * Refresh interval for news events (5 minutes)
@@ -32,7 +33,7 @@ const NEWS_REFRESH_INTERVAL = 5 * 60 * 1000;
  * Small pulsing orange/amber markers for conflict news
  */
 const CINEMATIC_SETTINGS = {
-  markerPixelSize: 6,
+  markerPixelSize: 5,
   markerColor: 'ORANGE',
   markerOpacity: 0.8,
   pulseAmplitude: 0.2,

@@ -4,6 +4,7 @@ import https from 'https';
 const PORT = 8091;
 const OPENSKY_BASE = 'https://opensky-network.org';
 const CELESTRAK_BASE = 'https://celestrak.org';
+const GDELT_BASE = 'https://api.gdeltproject.org';
 const CLIENT_ID = 'ryanramirez@live.com-api-client';
 const CLIENT_SECRET = 'J3t4jg6IL30CEW0yWaE9M5cTukiCPaTs';
 const TOKEN_URL = 'https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token';
@@ -72,6 +73,32 @@ function handleCelestrak(req, res, url) {
 }
 
 /**
+ * Handle GDELT API requests (no auth required)
+ */
+function handleGdelt(req, res, url) {
+    // Strip /gdelt/ prefix
+    const targetPath = url.pathname.replace('/gdelt/', '/');
+    const target = GDELT_BASE + targetPath + url.search;
+    console.log('Proxying GDELT request:', target);
+
+    const proxyReq = https.get(target, {
+        headers: {
+            'User-Agent': 'WorldView/1.0'
+        }
+    }, (proxyRes) => {
+        res.writeHead(proxyRes.statusCode, {
+            'Content-Type': proxyRes.headers['content-type'] || 'application/json'
+        });
+        proxyRes.pipe(res);
+    });
+    proxyReq.on('error', (e) => {
+        console.error('GDELT proxy error:', e.message);
+        res.writeHead(502);
+        res.end(JSON.stringify({ error: e.message }));
+    });
+}
+
+/**
  * Handle OpenSky API requests (OAuth2 required)
  */
 async function handleOpensky(req, res, url) {
@@ -108,6 +135,9 @@ const server = http.createServer(async (req, res) => {
                 url.pathname = url.pathname.replace('/celestrak/', '/');
             }
             handleCelestrak(req, res, url);
+        } else if (url.pathname.startsWith('/gdelt/')) {
+            // GDELT News API
+            handleGdelt(req, res, url);
         } else {
             // Default to OpenSky
             await handleOpensky(req, res, url);
@@ -118,4 +148,4 @@ const server = http.createServer(async (req, res) => {
     }
 });
 
-server.listen(PORT, () => console.log(`CORS Proxy on http://localhost:${PORT} (OpenSky + CelesTrak)`));
+server.listen(PORT, () => console.log(`CORS Proxy on http://localhost:${PORT} (OpenSky + CelesTrak + GDELT)`));
