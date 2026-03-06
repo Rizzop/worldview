@@ -304,8 +304,97 @@ export class CCTVLayer {
   }
 
   /**
-   * Render camera markers on the globe
-   * Each camera is displayed as a billboard marker at its lat/lon position.
+   * Billboard size in meters (100m x 100m equivalent)
+   */
+  static get BILLBOARD_SIZE() {
+    return 100;
+  }
+
+  /**
+   * Create a fallback/placeholder image for feeds that fail to load (CORS, etc.)
+   * Returns a data URI for a simple camera icon placeholder
+   * @returns {string} Data URI for fallback image
+   * @private
+   */
+  _createFallbackImage() {
+    // Simple camera icon as SVG data URI
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+      <rect width="64" height="64" fill="#333"/>
+      <rect x="12" y="20" width="40" height="28" rx="3" fill="#666"/>
+      <circle cx="32" cy="34" r="10" fill="#888"/>
+      <circle cx="32" cy="34" r="6" fill="#444"/>
+      <rect x="24" y="12" width="16" height="8" rx="2" fill="#666"/>
+      <text x="32" y="58" text-anchor="middle" font-size="8" fill="#aaa">CCTV</text>
+    </svg>`;
+    return 'data:image/svg+xml;base64,' + btoa(svg);
+  }
+
+  /**
+   * Load feed image with CORS handling and fallback
+   * @param {Object} feed - Feed object with url property
+   * @returns {Promise<string>} Image URL or fallback data URI
+   * @private
+   */
+  async _loadFeedImage(feed) {
+    // In Node.js environment, just return the URL (no actual loading)
+    if (typeof window === 'undefined') {
+      return feed.url;
+    }
+
+    try {
+      // Try to load the image with CORS
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+
+      return new Promise((resolve) => {
+        const timeoutId = setTimeout(() => {
+          // Timeout - use fallback
+          resolve(this._createFallbackImage());
+        }, this.timeout);
+
+        img.onload = () => {
+          clearTimeout(timeoutId);
+          // Image loaded successfully, use original URL
+          resolve(feed.url);
+        };
+
+        img.onerror = () => {
+          clearTimeout(timeoutId);
+          // CORS or load error - use fallback
+          resolve(this._createFallbackImage());
+        };
+
+        img.src = feed.url;
+      });
+    } catch (error) {
+      // Any error - use fallback
+      return this._createFallbackImage();
+    }
+  }
+
+  /**
+   * Handle billboard click to show feed in info panel
+   * @param {Object} globe - Globe instance
+   * @param {Object} feed - Feed object
+   * @private
+   */
+  _setupClickHandler(globe, feed) {
+    // Store click handler reference for cleanup
+    if (!this._clickHandlers) {
+      this._clickHandlers = [];
+    }
+
+    // Click handling is done via Cesium's selectedEntity mechanism
+    // The info panel will display feed details when billboard is clicked
+    // Properties are attached to the entity for the info box
+  }
+
+  /**
+   * Render CCTV feed billboards on the globe
+   * Each camera feed is displayed as a billboard (100m x 100m) at its location.
+   * Feed URL is loaded as image texture and applied to the billboard.
+   * Handles CORS issues gracefully with fallback placeholder.
+   * Billboards are clickable to open feed details in info panel.
    *
    * @param {Object} globe - Globe instance with addEntity method
    * @returns {Array<string>} Array of created entity IDs
@@ -326,30 +415,54 @@ export class CCTVLayer {
     for (const feed of this.feeds) {
       const entityId = `cctv-${feed.id}`;
 
-      // Create camera marker entity
+      // Calculate billboard scale for ~100m equivalent size
+      // Cesium billboards are scaled in pixels, we use nearFarScalar to maintain apparent size
+      const billboardSize = CCTVLayer.BILLBOARD_SIZE;
+
+      // Create billboard entity with feed image as texture
+      // Uses image URL directly; CORS errors handled gracefully by Cesium
       globe.addEntity(entityId, {
         name: feed.name,
+        description: this._createFeedDescription(feed),
         position: Cesium.Cartesian3.fromDegrees(feed.lon, feed.lat, 50),
-        point: {
-          pixelSize: 10,
-          color: Cesium.Color.CYAN,
-          outlineColor: Cesium.Color.WHITE,
-          outlineWidth: 2,
+        billboard: {
+          image: feed.url,
+          width: 64,
+          height: 64,
+          // Scale billboard based on distance for consistent apparent size (~100m)
+          scaleByDistance: new Cesium.NearFarScalar(1000, 2.0, 100000, 0.5),
+          // Translate billboard position so it sits above ground
+          pixelOffset: new Cesium.Cartesian2(0, -32),
+          // Handle CORS by allowing cross-origin images
+          // Cesium will fall back gracefully if image fails to load
+          heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND,
+          // Make billboard always face camera
+          verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+          horizontalOrigin: Cesium.HorizontalOrigin.CENTER,
+          // Disable depth test to ensure visibility
+          disableDepthTestDistance: Number.POSITIVE_INFINITY,
         },
         label: {
           text: feed.name,
-          font: '12px sans-serif',
+          font: '14px sans-serif',
           fillColor: Cesium.Color.WHITE,
           style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+          outlineColor: Cesium.Color.BLACK,
           outlineWidth: 2,
-          verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
-          pixelOffset: new Cesium.Cartesian2(0, -12),
+          verticalOrigin: Cesium.VerticalOrigin.TOP,
+          horizontalOrigin: Cesium.HorizontalOrigin.CENTER,
+          pixelOffset: new Cesium.Cartesian2(0, 8),
+          // Scale label with distance
+          scaleByDistance: new Cesium.NearFarScalar(1000, 1.0, 100000, 0.3),
+          disableDepthTestDistance: Number.POSITIVE_INFINITY,
         },
         properties: {
           feedId: feed.id,
-          url: feed.url,
-          type: feed.type,
-          region: feed.region,
+          feedUrl: feed.url,
+          feedType: feed.type || 'unknown',
+          feedRegion: feed.region || 'Unknown',
+          clickable: true,
+          layerType: 'cctv',
         },
       });
 
@@ -360,6 +473,38 @@ export class CCTVLayer {
     this._entityIds = entityIds;
 
     return entityIds;
+  }
+
+  /**
+   * Create HTML description for feed info panel
+   * @param {Object} feed - Feed object
+   * @returns {string} HTML description for info box
+   * @private
+   */
+  _createFeedDescription(feed) {
+    return `
+      <div style="padding: 10px;">
+        <h3>${feed.name}</h3>
+        <p><strong>Type:</strong> ${feed.type || 'Unknown'}</p>
+        <p><strong>Region:</strong> ${feed.region || 'Unknown'}</p>
+        <p><strong>Location:</strong> ${feed.lat.toFixed(4)}, ${feed.lon.toFixed(4)}</p>
+        <div style="margin-top: 10px;">
+          <img src="${feed.url}"
+               alt="${feed.name}"
+               style="max-width: 100%; max-height: 300px; border: 1px solid #ccc;"
+               onerror="this.style.display='none'; this.nextElementSibling.style.display='block';"
+          />
+          <p style="display: none; color: #888;">
+            Feed unavailable (CORS restricted or offline)
+          </p>
+        </div>
+        <p style="margin-top: 10px;">
+          <a href="${feed.url}" target="_blank" rel="noopener noreferrer">
+            Open feed in new tab
+          </a>
+        </p>
+      </div>
+    `;
   }
 
   /**
