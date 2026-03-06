@@ -2,9 +2,29 @@
  * Traffic Data Layer - OSM Road Network
  * Fetches road network from OpenStreetMap Overpass API and parses into road segments.
  * Road segments are arrays of {lat, lon} waypoints for use in particle system visualization.
+ * Renders traffic particles that animate along road segments.
  */
 
 import { fetchWithRetry } from '../utils/api.js';
+
+// Cesium is only available in browser environment
+let Cesium;
+try {
+  Cesium = (await import('cesium')).default || (await import('cesium'));
+} catch (e) {
+  // Cesium not available (Node.js environment) - render will be no-op
+  Cesium = null;
+}
+
+/**
+ * Maximum number of active traffic particles (performance limit)
+ */
+const MAX_PARTICLES = 500;
+
+/**
+ * Particle animation duration in seconds (time to traverse one road segment)
+ */
+const PARTICLE_DURATION = 30;
 
 /**
  * Default Overpass API endpoint
@@ -233,6 +253,300 @@ export class TrafficLayer {
       lastFetch: this.lastFetch,
     };
   }
+
+  /**
+   * Calculate total road length across all segments
+   * Used to distribute particles proportionally
+   * @returns {number} Total road length (sum of waypoint counts as proxy)
+   * @private
+   */
+  _calculateTotalRoadDensity() {
+    return this.roadSegments.reduce((sum, road) => sum + road.waypoints.length, 0);
+  }
+
+  /**
+   * Get color for a traffic particle based on road type
+   * Highways are blue, primary roads are green, others are yellow
+   * @param {string|null} highway - Road type from OSM
+   * @returns {Object} Cesium Color object
+   * @private
+   */
+  _getParticleColor(highway) {
+    if (!Cesium) return null;
+
+    switch (highway) {
+      case 'motorway':
+      case 'motorway_link':
+      case 'trunk':
+      case 'trunk_link':
+        return Cesium.Color.CYAN;
+      case 'primary':
+      case 'primary_link':
+        return Cesium.Color.LIME;
+      case 'secondary':
+      case 'secondary_link':
+        return Cesium.Color.YELLOW;
+      default:
+        return Cesium.Color.ORANGE;
+    }
+  }
+
+  /**
+   * Calculate the total length of a road segment in degrees (approximate)
+   * @param {Array<Object>} waypoints - Array of {lat, lon} coordinates
+   * @returns {number} Approximate length
+   * @private
+   */
+  _calculateRoadLength(waypoints) {
+    let length = 0;
+    for (let i = 1; i < waypoints.length; i++) {
+      const dx = waypoints[i].lon - waypoints[i - 1].lon;
+      const dy = waypoints[i].lat - waypoints[i - 1].lat;
+      length += Math.sqrt(dx * dx + dy * dy);
+    }
+    return length;
+  }
+
+  /**
+   * Select a random point along a road segment
+   * Returns the waypoint index and interpolation factor
+   * @param {Object} road - Road segment object
+   * @returns {Object} {waypointIndex, factor} where factor is 0-1
+   * @private
+   */
+  _selectRandomStartPoint(road) {
+    const segmentCount = road.waypoints.length - 1;
+    const waypointIndex = Math.floor(Math.random() * segmentCount);
+    const factor = Math.random();
+    return { waypointIndex, factor };
+  }
+
+  /**
+   * Create a SampledPositionProperty for smooth particle animation along waypoints
+   * @param {Array<Object>} waypoints - Array of {lat, lon} coordinates
+   * @param {number} startIndex - Starting waypoint index
+   * @param {number} startFactor - Interpolation factor at start position (0-1)
+   * @param {number} duration - Animation duration in seconds
+   * @returns {Object} Cesium SampledPositionProperty
+   * @private
+   */
+  _createParticlePath(waypoints, startIndex, startFactor, duration) {
+    if (!Cesium) return null;
+
+    const positionProperty = new Cesium.SampledPositionProperty();
+    const startTime = Cesium.JulianDate.now();
+
+    // Calculate remaining waypoints from start point
+    const remainingWaypoints = waypoints.slice(startIndex);
+    if (remainingWaypoints.length < 2) {
+      // Not enough waypoints, use entire path
+      return this._createFullPath(waypoints, duration);
+    }
+
+    // Calculate time per segment based on remaining waypoints
+    const segmentCount = remainingWaypoints.length - 1;
+    const timePerSegment = duration / segmentCount;
+
+    // Add starting position (interpolated between waypoints)
+    const startWp = remainingWaypoints[0];
+    const nextWp = remainingWaypoints[1];
+    const startLon = startWp.lon + (nextWp.lon - startWp.lon) * startFactor;
+    const startLat = startWp.lat + (nextWp.lat - startWp.lat) * startFactor;
+
+    positionProperty.addSample(
+      startTime,
+      Cesium.Cartesian3.fromDegrees(startLon, startLat, 10)
+    );
+
+    // Add subsequent waypoints
+    for (let i = 1; i < remainingWaypoints.length; i++) {
+      const wp = remainingWaypoints[i];
+      const adjustedTime = (i - startFactor) * timePerSegment;
+      const time = Cesium.JulianDate.addSeconds(startTime, adjustedTime, new Cesium.JulianDate());
+      positionProperty.addSample(
+        time,
+        Cesium.Cartesian3.fromDegrees(wp.lon, wp.lat, 10)
+      );
+    }
+
+    // Set interpolation for smooth movement
+    positionProperty.setInterpolationOptions({
+      interpolationDegree: 1,
+      interpolationAlgorithm: Cesium.LinearApproximation,
+    });
+
+    return positionProperty;
+  }
+
+  /**
+   * Create a SampledPositionProperty for the full path
+   * @param {Array<Object>} waypoints - Array of {lat, lon} coordinates
+   * @param {number} duration - Animation duration in seconds
+   * @returns {Object} Cesium SampledPositionProperty
+   * @private
+   */
+  _createFullPath(waypoints, duration) {
+    if (!Cesium || waypoints.length < 2) return null;
+
+    const positionProperty = new Cesium.SampledPositionProperty();
+    const startTime = Cesium.JulianDate.now();
+    const segmentCount = waypoints.length - 1;
+    const timePerSegment = duration / segmentCount;
+
+    for (let i = 0; i < waypoints.length; i++) {
+      const wp = waypoints[i];
+      const time = Cesium.JulianDate.addSeconds(startTime, i * timePerSegment, new Cesium.JulianDate());
+      positionProperty.addSample(
+        time,
+        Cesium.Cartesian3.fromDegrees(wp.lon, wp.lat, 10)
+      );
+    }
+
+    positionProperty.setInterpolationOptions({
+      interpolationDegree: 1,
+      interpolationAlgorithm: Cesium.LinearApproximation,
+    });
+
+    return positionProperty;
+  }
+
+  /**
+   * Distribute particles across road segments proportionally to road density
+   * @param {number} maxParticles - Maximum number of particles to create
+   * @returns {Array<Object>} Array of particle specifications with road and start info
+   * @private
+   */
+  _distributeParticles(maxParticles) {
+    if (this.roadSegments.length === 0) {
+      return [];
+    }
+
+    const particles = [];
+    const totalDensity = this._calculateTotalRoadDensity();
+
+    if (totalDensity === 0) {
+      return [];
+    }
+
+    // Calculate particles per road proportionally to waypoint count (proxy for length)
+    for (const road of this.roadSegments) {
+      // Roads need at least 2 waypoints
+      if (road.waypoints.length < 2) {
+        continue;
+      }
+
+      const roadDensity = road.waypoints.length;
+      const proportion = roadDensity / totalDensity;
+      const particleCount = Math.max(1, Math.round(proportion * maxParticles));
+
+      for (let i = 0; i < particleCount && particles.length < maxParticles; i++) {
+        const startPoint = this._selectRandomStartPoint(road);
+        particles.push({
+          road,
+          startIndex: startPoint.waypointIndex,
+          startFactor: startPoint.factor,
+        });
+      }
+
+      // Stop if we've hit the limit
+      if (particles.length >= maxParticles) {
+        break;
+      }
+    }
+
+    return particles;
+  }
+
+  /**
+   * Render traffic particles on the globe
+   * Spawns particles at random points on road segments that animate along waypoints.
+   * Particle count is proportional to road density, capped at MAX_PARTICLES for performance.
+   *
+   * @param {Object} globe - Globe instance with addEntity method
+   * @returns {Array<string>} Array of created entity IDs
+   */
+  render(globe) {
+    // Guard against null or undefined globe
+    if (!globe || typeof globe.addEntity !== 'function') {
+      return [];
+    }
+
+    // Guard against missing Cesium (Node.js environment)
+    if (!Cesium) {
+      return [];
+    }
+
+    // Guard against no road data
+    if (this.roadSegments.length === 0) {
+      return [];
+    }
+
+    const entityIds = [];
+
+    // Distribute particles across roads
+    const particleSpecs = this._distributeParticles(MAX_PARTICLES);
+
+    for (let i = 0; i < particleSpecs.length; i++) {
+      const spec = particleSpecs[i];
+      const entityId = `traffic-particle-${spec.road.id}-${i}`;
+
+      // Create animated position along waypoints
+      const positionProperty = this._createParticlePath(
+        spec.road.waypoints,
+        spec.startIndex,
+        spec.startFactor,
+        PARTICLE_DURATION
+      );
+
+      if (!positionProperty) {
+        continue;
+      }
+
+      // Get particle color based on road type
+      const color = this._getParticleColor(spec.road.highway);
+
+      // Create particle entity with animated position
+      globe.addEntity(entityId, {
+        name: `Traffic on ${spec.road.name || 'road'}`,
+        position: positionProperty,
+        point: {
+          pixelSize: 6,
+          color: color,
+          outlineColor: Cesium.Color.WHITE,
+          outlineWidth: 1,
+        },
+        properties: {
+          roadId: spec.road.id,
+          highway: spec.road.highway,
+          type: 'traffic-particle',
+        },
+      });
+
+      entityIds.push(entityId);
+    }
+
+    // Store entity IDs for cleanup
+    this._particleEntityIds = entityIds;
+
+    return entityIds;
+  }
+
+  /**
+   * Remove all rendered traffic particle entities from the globe
+   * @param {Object} globe - Globe instance with removeEntity method
+   */
+  removeAll(globe) {
+    if (!globe || typeof globe.removeEntity !== 'function') {
+      return;
+    }
+
+    if (this._particleEntityIds) {
+      for (const entityId of this._particleEntityIds) {
+        globe.removeEntity(entityId);
+      }
+      this._particleEntityIds = [];
+    }
+  }
 }
 
-export { DEFAULT_OVERPASS_URL };
+export { DEFAULT_OVERPASS_URL, MAX_PARTICLES, PARTICLE_DURATION };
