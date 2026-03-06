@@ -19,22 +19,50 @@ const Cesium = (typeof window !== 'undefined' && window.Cesium) ||
 const DEFAULT_TLE_URL = 'https://celestrak.org/NORAD/elements/gp.php?GROUP=active&FORMAT=tle';
 
 /**
- * Maximum number of satellite entities for performance
+ * Proxy URL for CORS-blocked requests
  */
-const MAX_SATELLITE_ENTITIES = 500;
+const PROXY_URL = 'http://localhost:8091';
+
+/**
+ * Maximum number of satellite entities for performance (capped at 200 per task spec)
+ */
+const MAX_SATELLITE_ENTITIES = 200;
+
+/**
+ * Number of orbit path sample points (90 points around one orbit)
+ */
+const ORBIT_SAMPLE_POINTS = 90;
+
+/**
+ * Priority satellite patterns for filtering
+ * Order: ISS, GPS, Starlink sample, military reconnaissance
+ */
+const PRIORITY_PATTERNS = [
+  { pattern: /^ISS\s*\(ZARYA\)/i, priority: 1, limit: 1 },
+  { pattern: /^ISS\b/i, priority: 2, limit: 5 },
+  { pattern: /^GPS\b/i, priority: 3, limit: 30 },
+  { pattern: /^NAVSTAR/i, priority: 4, limit: 10 },
+  { pattern: /^STARLINK/i, priority: 5, limit: 50 },
+  { pattern: /USA[-\s]?\d+/i, priority: 6, limit: 30 },  // Military/reconnaissance
+  { pattern: /^NROL/i, priority: 7, limit: 10 },
+  { pattern: /^LACROSSE/i, priority: 8, limit: 5 },
+  { pattern: /^KEYHOLE/i, priority: 9, limit: 5 },
+  { pattern: /^COSMOS/i, priority: 10, limit: 20 },
+  { pattern: /^GLONASS/i, priority: 11, limit: 20 },
+];
 
 /**
  * Cinematic satellite visualization settings
- * Thin subtle orbit lines with tiny bright dots at current position
+ * Small cyan dots with thin subtle orbit lines
  */
 const CINEMATIC_SETTINGS = {
-  // Orbit line: very thin, low opacity cyan/white
+  // Orbit line: very thin, low opacity cyan
   orbitLineWidth: 1,
   orbitLineOpacity: 0.2,
   orbitLineColor: 'CYAN',
-  // Satellite point: tiny bright dot
-  satellitePixelSize: 4,
-  satelliteColor: 'WHITE',
+  // Satellite point: small cyan dot (pixelSize: 2 per task spec)
+  satellitePixelSize: 2,
+  satelliteColor: 'CYAN',
 };
 
 /**
@@ -58,31 +86,98 @@ export class SatelliteLayer {
   }
 
   /**
-   * Fetch TLE data from the configured URL
+   * Fetch TLE data from the configured URL, with CORS proxy fallback
    * @returns {Promise<string|null>} Raw TLE text data or null on failure
    */
   async fetchData() {
+    // Try direct fetch first
     try {
       const response = await fetchWithRetry(this.url, {
+        timeout: this.timeout,
+        retries: 1, // Only 1 retry for direct fetch before proxy fallback
+      });
+
+      if (response && response.ok) {
+        const text = await response.text();
+        this.lastFetch = new Date();
+        console.log('[SatelliteLayer] TLE data fetched directly from CelesTrak');
+        return text;
+      }
+    } catch (error) {
+      console.log('[SatelliteLayer] Direct fetch failed, trying proxy...', error.message);
+    }
+
+    // Fallback to CORS proxy at localhost:8091
+    try {
+      // Route through proxy - use /NORAD/ path which proxy will forward to CelesTrak
+      const proxyUrl = `${PROXY_URL}/NORAD/elements/gp.php?GROUP=active&FORMAT=tle`;
+      const response = await fetchWithRetry(proxyUrl, {
         timeout: this.timeout,
         retries: this.retries,
       });
 
       if (!response || !response.ok) {
+        console.error('[SatelliteLayer] Proxy fetch failed with status:', response?.status);
         return null;
       }
 
       const text = await response.text();
       this.lastFetch = new Date();
+      console.log('[SatelliteLayer] TLE data fetched via CORS proxy');
       return text;
     } catch (error) {
+      console.error('[SatelliteLayer] All fetch attempts failed:', error.message);
       return null;
     }
   }
 
   /**
+   * Filter and prioritize satellites based on PRIORITY_PATTERNS
+   * Caps total at MAX_SATELLITE_ENTITIES (200), prioritizing ISS, GPS, Starlink, military
+   * @param {Array<Object>} satellites - All parsed satellites
+   * @returns {Array<Object>} Filtered and prioritized satellites
+   * @private
+   */
+  _filterByPriority(satellites) {
+    const selected = [];
+    const usedNoradIds = new Set();
+
+    // Process each priority pattern in order
+    for (const { pattern, limit } of PRIORITY_PATTERNS) {
+      const matches = satellites.filter(sat =>
+        pattern.test(sat.name) && !usedNoradIds.has(sat.noradId)
+      );
+
+      // Take up to limit satellites matching this pattern
+      const toAdd = matches.slice(0, limit);
+      for (const sat of toAdd) {
+        if (selected.length >= MAX_SATELLITE_ENTITIES) break;
+        selected.push(sat);
+        usedNoradIds.add(sat.noradId);
+      }
+
+      if (selected.length >= MAX_SATELLITE_ENTITIES) break;
+    }
+
+    // Fill remaining slots with other satellites (first come, first serve)
+    if (selected.length < MAX_SATELLITE_ENTITIES) {
+      for (const sat of satellites) {
+        if (selected.length >= MAX_SATELLITE_ENTITIES) break;
+        if (!usedNoradIds.has(sat.noradId)) {
+          selected.push(sat);
+          usedNoradIds.add(sat.noradId);
+        }
+      }
+    }
+
+    console.log(`[SatelliteLayer] Filtered to ${selected.length} priority satellites`);
+    return selected;
+  }
+
+  /**
    * Parse TLE response text into satellite objects with computed positions
    * TLE format: 3 lines per satellite - name, line1, line2
+   * Applies priority filtering to cap at 200 satellites
    *
    * @param {string} tleText - Raw TLE text data
    * @param {Date} [date] - Date for position computation (default: now)
@@ -99,7 +194,7 @@ export class SatelliteLayer {
     }
 
     const lines = tleText.trim().split('\n').map(line => line.trim());
-    const satellites = [];
+    const allSatellites = [];
 
     // TLE data comes in 3-line format: name, line1, line2
     for (let i = 0; i + 2 < lines.length; i += 3) {
@@ -123,7 +218,7 @@ export class SatelliteLayer {
         // Propagation failed - position remains null
       }
 
-      satellites.push({
+      allSatellites.push({
         name,
         noradId,
         line1,
@@ -132,8 +227,11 @@ export class SatelliteLayer {
       });
     }
 
-    this.satellites = satellites;
-    return satellites;
+    console.log(`[SatelliteLayer] Parsed ${allSatellites.length} satellites from TLE data`);
+
+    // Apply priority filtering to cap at 200 satellites
+    this.satellites = this._filterByPriority(allSatellites);
+    return this.satellites;
   }
 
   /**
@@ -217,18 +315,29 @@ export class SatelliteLayer {
 
   /**
    * Propagate orbit path positions for a satellite
+   * Samples 90 points around one full orbit period
    * @param {Object} sat - Satellite object with TLE data
-   * @param {number} minutes - Number of minutes to propagate forward
-   * @param {number} intervalMinutes - Interval between points in minutes
    * @returns {Array<Object>} Array of positions { lat, lon, alt }
    * @private
    */
-  _propagateOrbitPath(sat, minutes = 90, intervalMinutes = 2) {
+  _propagateOrbitPath(sat) {
     const positions = [];
     const now = new Date();
 
-    for (let m = 0; m <= minutes; m += intervalMinutes) {
-      const futureTime = new Date(now.getTime() + m * 60 * 1000);
+    // Extract mean motion from TLE line 2 (revolutions per day)
+    // Columns 53-63: Mean Motion
+    const meanMotion = parseFloat(sat.line2.substring(52, 63).trim());
+
+    // Calculate orbital period in minutes (1440 minutes/day divided by revs/day)
+    // Default to 90 minutes if extraction fails (typical LEO orbit)
+    const orbitalPeriodMinutes = meanMotion > 0 ? (1440 / meanMotion) : 90;
+
+    // Sample 90 points around one orbit
+    const intervalMinutes = orbitalPeriodMinutes / ORBIT_SAMPLE_POINTS;
+
+    for (let i = 0; i < ORBIT_SAMPLE_POINTS; i++) {
+      const minutesAhead = i * intervalMinutes;
+      const futureTime = new Date(now.getTime() + minutesAhead * 60 * 1000);
       try {
         const pos = propagateTLE(sat.line1, sat.line2, futureTime);
         if (pos) {
@@ -243,49 +352,60 @@ export class SatelliteLayer {
   }
 
   /**
-   * Render satellites on the globe with markers, labels, and orbit paths
-   * Uses cinematic styling: thin subtle orbit lines, tiny bright dots
-   * @param {Object} globe - Globe instance with addEntity method
+   * Render satellites on the globe with markers and orbit paths
+   * Uses cinematic styling: small cyan dots (pixelSize: 2), thin subtle orbit lines
+   * @param {Object} globe - Globe instance with addEntity method or Cesium viewer
    * @returns {Array<string>} Array of created entity IDs
    */
   render(globe) {
-    // Guard against null or undefined globe
-    if (!globe || typeof globe.addEntity !== 'function') {
+    // Guard against missing Cesium (Node.js environment)
+    if (!Cesium) {
+      console.warn('[SatelliteLayer] Cesium not available, skipping render');
       return [];
     }
 
-    // Guard against missing Cesium (Node.js environment)
-    if (!Cesium) {
+    // Support both globe wrapper objects and direct Cesium viewers
+    const viewer = globe?.getViewer ? globe.getViewer() : globe?.viewer || globe;
+    const hasAddEntity = globe && typeof globe.addEntity === 'function';
+    const hasEntities = viewer && viewer.entities && typeof viewer.entities.add === 'function';
+
+    if (!hasAddEntity && !hasEntities) {
+      console.warn('[SatelliteLayer] No valid render target (need addEntity or entities.add)');
       return [];
     }
 
     const entityIds = [];
     const self = this;
 
-    // Limit satellites for performance
+    // Filter satellites with valid positions (already capped at 200 by priority filter)
     const satellitesToRender = this.satellites
-      .filter(sat => sat.position && sat.position.lat != null && sat.position.lon != null)
-      .slice(0, MAX_SATELLITE_ENTITIES);
+      .filter(sat => sat.position && sat.position.lat != null && sat.position.lon != null);
+
+    console.log(`[SatelliteLayer] Rendering ${satellitesToRender.length} satellites`);
 
     for (const sat of satellitesToRender) {
       const satEntityId = `satellite-${sat.noradId}`;
       const orbitEntityId = `orbit-${sat.noradId}`;
 
-      // Cinematic satellite marker: tiny bright white dot
-      globe.addEntity(satEntityId, {
+      // Calculate position in Cesium coordinates
+      const satPosition = Cesium.Cartesian3.fromDegrees(
+        sat.position.lon,
+        sat.position.lat,
+        (sat.position.alt || 0) * 1000 // Convert km to meters
+      );
+
+      // Build satellite entity definition: small cyan dot (pixelSize: 2)
+      const satelliteEntityDef = {
+        id: satEntityId,
         name: sat.name,
-        position: Cesium.Cartesian3.fromDegrees(
-          sat.position.lon,
-          sat.position.lat,
-          (sat.position.alt || 0) * 1000 // Convert km to meters
-        ),
+        position: satPosition,
         point: {
-          pixelSize: CINEMATIC_SETTINGS.satellitePixelSize,
-          color: Cesium.Color.WHITE,
+          pixelSize: CINEMATIC_SETTINGS.satellitePixelSize, // 2
+          color: Cesium.Color.CYAN,
           outlineColor: Cesium.Color.TRANSPARENT,
           outlineWidth: 0,
         },
-        // Minimal labels only at close zoom
+        // Minimal label at close zoom
         label: {
           text: sat.name,
           font: '9px monospace',
@@ -300,14 +420,21 @@ export class SatelliteLayer {
         properties: {
           noradId: sat.noradId,
           name: sat.name,
+          altitude: sat.position.alt,
           type: 'satellite',
         },
-      });
+      };
 
+      // Add entity using available method
+      if (hasAddEntity) {
+        globe.addEntity(satEntityId, satelliteEntityDef);
+      } else if (hasEntities) {
+        viewer.entities.add(satelliteEntityDef);
+      }
       entityIds.push(satEntityId);
 
-      // Propagate orbit path (90 minutes forward)
-      const orbitPositions = this._propagateOrbitPath(sat, 90, 2);
+      // Propagate orbit path (90 sample points around one orbit)
+      const orbitPositions = this._propagateOrbitPath(sat);
 
       if (orbitPositions.length >= 2) {
         // Convert positions to Cartesian3 array for polyline
@@ -319,70 +446,98 @@ export class SatelliteLayer {
           )
         );
 
-        // Cinematic orbit path: thin, low opacity cyan line
-        globe.addEntity(orbitEntityId, {
+        // Cinematic orbit path: thin cyan line (width: 1, opacity: 0.2)
+        const orbitEntityDef = {
+          id: orbitEntityId,
           name: `${sat.name} Orbit`,
           polyline: {
             positions: cartesianPositions,
-            width: CINEMATIC_SETTINGS.orbitLineWidth,
-            material: Cesium.Color.CYAN.withAlpha(CINEMATIC_SETTINGS.orbitLineOpacity),
+            width: CINEMATIC_SETTINGS.orbitLineWidth, // 1
+            material: Cesium.Color.CYAN.withAlpha(CINEMATIC_SETTINGS.orbitLineOpacity), // 0.2
           },
           properties: {
             noradId: sat.noradId,
             type: 'orbit',
           },
-        });
+        };
 
+        if (hasAddEntity) {
+          globe.addEntity(orbitEntityId, orbitEntityDef);
+        } else if (hasEntities) {
+          viewer.entities.add(orbitEntityDef);
+        }
         entityIds.push(orbitEntityId);
       }
     }
 
-    // Set up click handler on the viewer
-    if (globe.getViewer && typeof globe.getViewer === 'function') {
-      const viewer = globe.getViewer();
-      if (viewer && viewer.screenSpaceEventHandler) {
-        // Create a new handler for picking
-        const handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
+    // Set up click handler on the viewer for satellite selection
+    if (viewer && viewer.scene) {
+      const handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
 
-        handler.setInputAction((click) => {
-          const pickedObject = viewer.scene.pick(click.position);
-          if (Cesium.defined(pickedObject) && pickedObject.id) {
-            const entity = pickedObject.id;
-            const props = entity.properties;
-            if (props && props.noradId) {
-              const noradId = props.noradId.getValue();
-              const info = self.getInfo(noradId);
-              if (info) {
-                // Dispatch custom event with satellite info
-                const event = new CustomEvent('satelliteClick', { detail: info });
-                if (typeof document !== 'undefined') {
-                  document.dispatchEvent(event);
-                }
-              }
+      handler.setInputAction((click) => {
+        const pickedObject = viewer.scene.pick(click.position);
+        if (Cesium.defined(pickedObject) && pickedObject.id) {
+          const entity = pickedObject.id;
+          const props = entity.properties;
+
+          // Check if this is a satellite entity
+          if (props && props.type && props.type.getValue() === 'satellite') {
+            const noradId = props.noradId ? props.noradId.getValue() : null;
+            const name = props.name ? props.name.getValue() : entity.name;
+            const altitude = props.altitude ? props.altitude.getValue() : null;
+
+            // Dispatch custom event with satellite info (name, NORAD ID, altitude)
+            const eventDetail = {
+              name: name,
+              noradId: noradId,
+              altitude: altitude,
+            };
+
+            console.log('[SatelliteLayer] Satellite clicked:', eventDetail);
+
+            const event = new CustomEvent('satelliteClick', { detail: eventDetail });
+            if (typeof document !== 'undefined') {
+              document.dispatchEvent(event);
+            }
+            if (typeof window !== 'undefined') {
+              window.dispatchEvent(event);
             }
           }
-        }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+        }
+      }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
 
-        // Store handler reference for cleanup
-        this._clickHandler = handler;
-      }
+      // Store handler reference for cleanup
+      this._clickHandler = handler;
     }
 
+    console.log(`[SatelliteLayer] Rendered ${entityIds.length} entities (satellites + orbits)`);
     return entityIds;
   }
 
   /**
    * Remove all rendered satellite entities from the globe
-   * @param {Object} globe - Globe instance with removeEntity method
+   * @param {Object} globe - Globe instance with removeEntity method or Cesium viewer
    */
   removeAll(globe) {
-    if (!globe || typeof globe.removeEntity !== 'function') {
+    const hasRemoveEntity = globe && typeof globe.removeEntity === 'function';
+    const viewer = globe?.getViewer ? globe.getViewer() : globe?.viewer || globe;
+    const hasEntities = viewer && viewer.entities && typeof viewer.entities.removeById === 'function';
+
+    if (!hasRemoveEntity && !hasEntities) {
       return;
     }
 
     for (const sat of this.satellites) {
-      globe.removeEntity(`satellite-${sat.noradId}`);
-      globe.removeEntity(`orbit-${sat.noradId}`);
+      const satId = `satellite-${sat.noradId}`;
+      const orbitId = `orbit-${sat.noradId}`;
+
+      if (hasRemoveEntity) {
+        globe.removeEntity(satId);
+        globe.removeEntity(orbitId);
+      } else if (hasEntities) {
+        viewer.entities.removeById(satId);
+        viewer.entities.removeById(orbitId);
+      }
     }
 
     // Clean up click handler
